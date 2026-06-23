@@ -1,3 +1,5 @@
+`timescale 1ns / 1ps
+
 //==============================================================================
 // Module:  pe (Processing Element)
 // Purpose: Weight-stationary systolic array processing element

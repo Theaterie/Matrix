@@ -1,20 +1,25 @@
+`timescale 1ns / 1ps
+
 //==============================================================================
 // Module:  controller
 // Purpose: Finite State Machine for weight-stationary systolic array
-//          Orchestrates weight loading, compute, and result readout phases
+//          Orchestrates weight loading, compute, pipeline drain, and result
+//          serialization phases
 //==============================================================================
 // FSM states:
 //   IDLE         (3'd0) — Wait for start pulse
 //   WEIGHT_LOAD  (3'd1) — Load ROWS*COLS weights into PE array (serial)
 //   COMPUTE      (3'd2) — Stream K activation vectors, accumulate partial sums
-//   READOUT      (3'd3) — Drain pipeline, latch results from bottom edge
-//   DONE         (3'd4) — Pulse done, return to IDLE
+//   READOUT      (3'd3) — Drain pipeline, capture results from bottom edge
+//   SERIALIZE    (3'd4) — Serialize captured results into result BRAM
+//   DONE         (3'd5) — Pulse done, return to IDLE
 //
 // Timing (16x16, K=16):
 //   Weight load: 256 cycles
-//   Compute:     16 cycles (one activation vector per cycle)
-//   Readout:     64 cycles (drain 2*(ROWS+COLS) pipeline stages)
-//   Total:       ~336 cycles
+//   Compute:      16 cycles (one activation vector per cycle)
+//   Readout:      64 cycles (drain 2*(ROWS+COLS) pipeline stages)
+//   Serialize:   256 cycles (ROWS*COLS results, one per cycle)
+//   Total:       ~592 cycles
 //==============================================================================
 
 module controller #(
@@ -40,9 +45,13 @@ module controller #(
     output reg  [ADDR_WIDTH-1:0]         weight_addr,      // Weight destination address
 
     // ---- Phase indicators (for address_generator) ----
-    output reg  [1:0]                    phase,            // 0=IDLE, 1=WEIGHT_LOAD, 2=COMPUTE, 3=READOUT
+    output reg  [2:0]                    phase,            // 0=IDLE, 1=WEIGHT_LOAD, 2=COMPUTE, 3=READOUT, 4=SERIALIZE, 5=DONE
     output reg  [$clog2(K_DEPTH):0]      compute_cycle,    // Current cycle within COMPUTE phase
-    output reg  [$clog2(2*(ROWS+COLS)):0] readout_cycle    // Current cycle within READOUT phase
+    output reg  [$clog2(2*(ROWS+COLS)):0] readout_cycle,   // Current cycle within READOUT phase
+    output reg  [$clog2(ROWS*COLS):0]    serialize_cycle,   // Current cycle within SERIALIZE phase
+
+    // ---- Activation deserializer handshake ----
+    input  wire                          deser_ready       // act_deserializer prefetch complete
 );
 
 //==============================================================================
@@ -52,7 +61,8 @@ localparam STATE_IDLE        = 3'd0;
 localparam STATE_WEIGHT_LOAD = 3'd1;
 localparam STATE_COMPUTE     = 3'd2;
 localparam STATE_READOUT     = 3'd3;
-localparam STATE_DONE        = 3'd4;
+localparam STATE_SERIALIZE   = 3'd4;
+localparam STATE_DONE        = 3'd5;
 
 reg [2:0] state, next_state;
 
@@ -62,10 +72,12 @@ reg [2:0] state, next_state;
 localparam WEIGHT_LOAD_CYCLES = ROWS * COLS;               // 256
 localparam COMPUTE_CYCLES     = K_DEPTH;                   // K activation vectors
 localparam READOUT_CYCLES     = 2 * (ROWS + COLS);         // 64 — pipeline drain
+localparam SERIALIZE_CYCLES   = ROWS * COLS;               // 256 — serialized results
 
-reg [$clog2(WEIGHT_LOAD_CYCLES):0] weight_cnt;  // 0..256
-reg [$clog2(COMPUTE_CYCLES):0]     compute_cnt;  // 0..K_DEPTH
-reg [$clog2(READOUT_CYCLES):0]     readout_cnt;  // 0..64
+reg [$clog2(WEIGHT_LOAD_CYCLES):0] weight_cnt;     // 0..256
+reg [$clog2(COMPUTE_CYCLES):0]     compute_cnt;     // 0..K_DEPTH
+reg [$clog2(READOUT_CYCLES):0]     readout_cnt;     // 0..64
+reg [$clog2(SERIALIZE_CYCLES):0]   serialize_cnt;   // 0..256
 
 //==============================================================================
 // State register
@@ -89,17 +101,23 @@ always @(*) begin
         end
 
         STATE_WEIGHT_LOAD: begin
-            if (weight_cnt == WEIGHT_LOAD_CYCLES)
+            // Wait for both: all weights loaded AND deserializer buffer full
+            if (weight_cnt >= WEIGHT_LOAD_CYCLES - 1 && deser_ready)
                 next_state = STATE_COMPUTE;
         end
 
         STATE_COMPUTE: begin
-            if (compute_cnt == COMPUTE_CYCLES)
+            if (compute_cnt == COMPUTE_CYCLES - 1)
                 next_state = STATE_READOUT;
         end
 
         STATE_READOUT: begin
-            if (readout_cnt == READOUT_CYCLES)
+            if (readout_cnt == READOUT_CYCLES - 1)
+                next_state = STATE_SERIALIZE;
+        end
+
+        STATE_SERIALIZE: begin
+            if (serialize_cnt == SERIALIZE_CYCLES - 1)
                 next_state = STATE_DONE;
         end
 
@@ -116,13 +134,16 @@ end
 //==============================================================================
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
-        weight_cnt  <= 0;
-        compute_cnt <= 0;
-        readout_cnt <= 0;
+        weight_cnt    <= 0;
+        compute_cnt   <= 0;
+        readout_cnt   <= 0;
+        serialize_cnt <= 0;
     end else begin
         case (state)
             STATE_WEIGHT_LOAD: begin
-                weight_cnt <= weight_cnt + 1'b1;
+                if (weight_cnt < WEIGHT_LOAD_CYCLES - 1)
+                    weight_cnt <= weight_cnt + 1'b1;
+                // else: hold at max, waiting for deser_ready
             end
 
             STATE_COMPUTE: begin
@@ -133,10 +154,15 @@ always @(posedge clk or negedge rst_n) begin
                 readout_cnt <= readout_cnt + 1'b1;
             end
 
+            STATE_SERIALIZE: begin
+                serialize_cnt <= serialize_cnt + 1'b1;
+            end
+
             default: begin
-                weight_cnt  <= 0;
-                compute_cnt <= 0;
-                readout_cnt <= 0;
+                weight_cnt    <= 0;
+                compute_cnt   <= 0;
+                readout_cnt   <= 0;
+                serialize_cnt <= 0;
             end
         endcase
     end
@@ -147,15 +173,16 @@ end
 //==============================================================================
 always @(*) begin
     // Defaults
-    busy        = 1'b0;
-    done        = 1'b0;
-    pe_clear    = 1'b0;
-    pe_enable   = 1'b0;
-    weight_wren = 1'b0;
-    weight_addr = {ADDR_WIDTH{1'b0}};
-    phase       = 2'b00;
-    compute_cycle = 0;
-    readout_cycle = 0;
+    busy            = 1'b0;
+    done            = 1'b0;
+    pe_clear        = 1'b0;
+    pe_enable       = 1'b0;
+    weight_wren     = 1'b0;
+    weight_addr     = {ADDR_WIDTH{1'b0}};
+    phase           = 3'b000;
+    compute_cycle   = 0;
+    readout_cycle   = 0;
+    serialize_cycle = 0;
 
     case (state)
         STATE_IDLE: begin
@@ -165,29 +192,37 @@ always @(*) begin
         STATE_WEIGHT_LOAD: begin
             busy        = 1'b1;
             pe_enable   = 1'b1;
-            weight_wren = 1'b1;
+            weight_wren = (weight_cnt < WEIGHT_LOAD_CYCLES);  // Deassert after last weight
             weight_addr = weight_cnt[ADDR_WIDTH-1:0];
-            phase       = 2'b01;
+            phase       = 3'b001;
         end
 
         STATE_COMPUTE: begin
             busy          = 1'b1;
             pe_enable     = 1'b1;
             pe_clear      = (compute_cnt == 0);   // Clear accumulators on first cycle
-            phase         = 2'b10;
+            phase         = 3'b010;
             compute_cycle = compute_cnt;
         end
 
         STATE_READOUT: begin
-            busy         = 1'b1;
-            pe_enable    = 1'b1;
+            busy          = 1'b1;
+            pe_enable     = 1'b1;
             // pe_clear = 0 during readout (continue accumulating final partial sums)
-            phase        = 2'b11;
+            phase         = 3'b011;
             readout_cycle = readout_cnt;
         end
 
+        STATE_SERIALIZE: begin
+            busy            = 1'b1;
+            pe_enable       = 1'b1;   // Keep PE array clocked (holds idle state)
+            phase           = 3'b100;
+            serialize_cycle = serialize_cnt;
+        end
+
         STATE_DONE: begin
-            done = 1'b1;
+            done  = 1'b1;
+            phase = 3'b101;
             // Pulse done for one cycle, then return to IDLE
         end
 

@@ -1,3 +1,5 @@
+`timescale 1ns / 1ps
+
 //==============================================================================
 // Module:  buffer_ram
 // Purpose: Inferred dual-port block RAM for systolic array data storage

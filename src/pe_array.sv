@@ -1,3 +1,5 @@
+`timescale 1ns / 1ps
+
 //==============================================================================
 // Module:  pe_array
 // Purpose: 2D systolic array of processing elements (weight-stationary dataflow)
@@ -147,6 +149,24 @@ generate
 endgenerate
 
 //==============================================================================
+// PE activation input MUX
+//   During weight loading (weight_wren=1): feed weight_data directly to EVERY
+//     PE's act_in, bypassing the pipelined activation network. This ensures
+//     that PE(r,c) at column c>0 sees weight_data in the same cycle as PE(r,0),
+//     without waiting for the 2*c cycle pipeline delay.
+//   During normal operation (weight_wren=0): route from act_net (left neighbor
+//     or skewed left boundary), enabling the systolic activation flow.
+//==============================================================================
+wire [DATA_WIDTH-1:0] pe_act_in [0:ROWS-1][0:COLS-1];
+generate
+    for (r = 0; r < ROWS; r = r + 1) begin : gen_pe_act_mux
+        for (c = 0; c < COLS; c = c + 1) begin : gen_pe_act_mux_col
+            assign pe_act_in[r][c] = weight_wren ? weight_data : act_net[r][c];
+        end
+    end
+endgenerate
+
+//==============================================================================
 // PE grid instantiation (ROWS × COLS)
 //==============================================================================
 generate
@@ -161,7 +181,9 @@ generate
                 .rst_n       (rst_n),
 
                 // Activation: left -> right
-                .act_in      (act_net[r][c]),
+                //   act_in uses pe_act_in MUX for correct weight loading
+                //   act_out drives act_net for normal systolic propagation
+                .act_in      (pe_act_in[r][c]),
                 .valid_in    (valid_net[r][c]),
                 .act_out     (act_net[r][c+1]),
                 .valid_out   (valid_net[r][c+1]),
