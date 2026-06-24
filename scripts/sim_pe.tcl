@@ -23,29 +23,32 @@ create_project $project_name $project_dir -part xcux35-vsva1365-3-e
 #------------------------------------------------------------------------------
 # 2. Add design sources
 #------------------------------------------------------------------------------
-add_files -norecurse mac_unit.v
-set_property file_type Verilog [get_files mac_unit.v]
+add_files -norecurse src/mac_unit.v
+set_property file_type Verilog [get_files src/mac_unit.v]
 
-add_files -norecurse pe.sv
-set_property file_type SystemVerilog [get_files pe.sv]
+add_files -norecurse src/pe.sv
+set_property file_type SystemVerilog [get_files src/pe.sv]
 
-add_files -norecurse pe_array.sv
-set_property file_type SystemVerilog [get_files pe_array.sv]
+add_files -norecurse src/pe_array.sv
+set_property file_type SystemVerilog [get_files src/pe_array.sv]
 
-add_files -norecurse controller.sv
-set_property file_type SystemVerilog [get_files controller.sv]
+add_files -norecurse src/controller.sv
+set_property file_type SystemVerilog [get_files src/controller.sv]
 
-add_files -norecurse address_generator.sv
-set_property file_type SystemVerilog [get_files address_generator.sv]
+add_files -norecurse src/address_generator.sv
+set_property file_type SystemVerilog [get_files src/address_generator.sv]
 
-add_files -norecurse buffer_ram.sv
-set_property file_type SystemVerilog [get_files buffer_ram.sv]
+add_files -norecurse src/buffer_ram.sv
+set_property file_type SystemVerilog [get_files src/buffer_ram.sv]
 
-add_files -norecurse systolic_array.sv
-set_property file_type SystemVerilog [get_files systolic_array.sv]
+add_files -norecurse src/act_deserializer.sv
+set_property file_type SystemVerilog [get_files src/act_deserializer.sv]
 
-add_files -norecurse result_serializer.sv
-set_property file_type SystemVerilog [get_files result_serializer.sv]
+add_files -norecurse src/systolic_array.sv
+set_property file_type SystemVerilog [get_files src/systolic_array.sv]
+
+add_files -norecurse src/result_serializer.sv
+set_property file_type SystemVerilog [get_files src/result_serializer.sv]
 
 #------------------------------------------------------------------------------
 # 3. Add simulation sources
@@ -55,6 +58,12 @@ set_property file_type SystemVerilog [get_files -of_objects [get_filesets sim_1]
 
 add_files -fileset sim_1 -norecurse tb/tb_pe_array.sv
 set_property file_type SystemVerilog [get_files -of_objects [get_filesets sim_1] tb/tb_pe_array.sv]
+
+add_files -fileset sim_1 -norecurse tb/tb_systolic_array.sv
+set_property file_type SystemVerilog [get_files -of_objects [get_filesets sim_1] tb/tb_systolic_array.sv]
+
+add_files -fileset sim_1 -norecurse tb/tb_systolic_array_numerical.sv
+set_property file_type SystemVerilog [get_files -of_objects [get_filesets sim_1] tb/tb_systolic_array_numerical.sv]
 
 #------------------------------------------------------------------------------
 # 4. Set simulation top
@@ -104,7 +113,43 @@ puts "============================================================"
 close_sim
 
 #------------------------------------------------------------------------------
-# 8. Close project
+# 8. Switch top to Systolic Array (BRAM path) testbench
+#------------------------------------------------------------------------------
+set_property top tb_systolic_array [get_filesets sim_1]
+
+puts "============================================================"
+puts "  Starting Systolic Array (BRAM path) simulation..."
+puts "============================================================"
+
+launch_simulation
+run all
+
+puts "============================================================"
+puts "  Systolic Array (BRAM path) simulation done"
+puts "============================================================"
+
+close_sim
+
+#------------------------------------------------------------------------------
+# 9. Switch top to Numerical verification testbench
+#------------------------------------------------------------------------------
+set_property top tb_systolic_array_numerical [get_filesets sim_1]
+
+puts "============================================================"
+puts "  Starting Numerical verification simulation..."
+puts "============================================================"
+
+launch_simulation
+run all
+
+puts "============================================================"
+puts "  Numerical verification simulation done"
+puts "============================================================"
+
+close_sim
+
+#------------------------------------------------------------------------------
+# 10. Close project
 #------------------------------------------------------------------------------
 close_project
 

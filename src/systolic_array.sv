@@ -126,7 +126,12 @@ wire                   ser_shift_en;     // Shift out during SERIALIZE
 
 //==============================================================================
 // Controller instantiation
+//   deser_ready_gated: when use_bram_act=0 (direct path), bypass prefetch
+//   requirement so controller can enter COMPUTE without BRAM data ready.
 //==============================================================================
+wire deser_ready_gated;
+assign deser_ready_gated = deser_prefetch_done || !use_bram_act;
+
 controller #(
     .ROWS       (ROWS),
     .COLS       (COLS),
@@ -146,7 +151,7 @@ controller #(
     .compute_cycle   (),
     .readout_cycle   (),
     .serialize_cycle (),
-    .deser_ready     (deser_prefetch_done)
+    .deser_ready     (deser_ready_gated)
 );
 
 // Weight ready during WEIGHT_LOAD phase

@@ -204,9 +204,12 @@ module act_deserializer #(
                     pf_done_r <= pf_done_comb;
 
                     // Streaming handover: if buffer is full AND COMPUTE has started,
-                    // output the first activation vector THIS cycle (stream_cnt=0)
+                    // output the first activation vector THIS cycle (combinational
+                    // act_valid_out term handles this). Advance stream_cnt to 1 so
+                    // the next cycle (STREAMING) outputs buffer[*][1], NOT buffer[*][0]
+                    // again — avoids double-output of the first activation vector.
                     if (pf_done_comb && stream_en) begin
-                                                // stream_cnt stays 0 (first vector)
+                        stream_cnt <= 1'b1;  // Skip index 0 — already output now
                     end else begin
                                             end
                 end
@@ -220,12 +223,14 @@ module act_deserializer #(
                     rd_active    <= 1'b0;
 
                     // If COMPUTE starts this cycle, stream first vector immediately
+                    // via combinational act_valid_out term. Advance stream_cnt to 1
+                    // so the next cycle (STREAMING) outputs buffer[*][1], preventing
+                    // double-output of the first activation.
                     if (stream_en) begin
-                                                // stream_cnt stays 0 (first vector)
+                        stream_cnt <= 1'b1;  // Skip index 0 — already output now
                     end else begin
-                                            end
-
-                    stream_cnt <= {K_WID{1'b0}};
+                        stream_cnt <= {K_WID{1'b0}};
+                    end
                 end
 
                 //------------------------------------------------------------------

@@ -23,8 +23,8 @@ create_project $project_name $project_dir -part xcux35-vsva1365-3-e
 #------------------------------------------------------------------------------
 # 2. Add design sources
 #------------------------------------------------------------------------------
-add_files -norecurse mac_unit.v
-set_property file_type Verilog [get_files mac_unit.v]
+add_files -norecurse src/mac_unit.v
+set_property file_type Verilog [get_files src/mac_unit.v]
 
 #------------------------------------------------------------------------------
 # 3. Add simulation sources
