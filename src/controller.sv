@@ -15,11 +15,16 @@
 //   DONE         (3'd5) — Pulse done, return to IDLE
 //
 // Timing (16x16, K=16):
-//   Weight load: 256 cycles
+//   Weight load: 256 cycles (0 if weight_preloaded=1)
 //   Compute:      16 cycles (one activation vector per cycle)
 //   Readout:      64 cycles (drain 2*(ROWS+COLS) pipeline stages)
 //   Serialize:   256 cycles (ROWS*COLS results, one per cycle)
-//   Total:       ~592 cycles
+//   Total:       ~592 cycles (weight_preloaded: ~336)
+//
+// weight_preloaded optimization:
+//   When weights are already in the PE array (reused across M rows with
+//   same (K,N) tile), skip the 256-cycle WEIGHT_LOAD phase. The controller
+//   still waits for deser_ready (prefetch from BRAM) before entering COMPUTE.
 //==============================================================================
 
 module controller #(
@@ -33,6 +38,7 @@ module controller #(
 
     // ---- External handshake ----
     input  wire                          start,            // Pulse: begin computation
+    input  wire                          weight_preloaded, // 1 = weights already in PE array
     output reg                           busy,             // High during operation
     output reg                           done,             // Pulse: computation complete
 
@@ -101,9 +107,15 @@ always @(*) begin
         end
 
         STATE_WEIGHT_LOAD: begin
-            // Wait for both: all weights loaded AND deserializer buffer full
-            if (weight_cnt >= WEIGHT_LOAD_CYCLES - 1 && deser_ready)
-                next_state = STATE_COMPUTE;
+            // weight_preloaded: skip weight loading, wait only for prefetch
+            if (weight_preloaded) begin
+                if (deser_ready)
+                    next_state = STATE_COMPUTE;
+            // Normal: wait for all weights loaded AND prefetch done
+            end else begin
+                if (weight_cnt >= WEIGHT_LOAD_CYCLES - 1 && deser_ready)
+                    next_state = STATE_COMPUTE;
+            end
         end
 
         STATE_COMPUTE: begin
@@ -141,7 +153,7 @@ always @(posedge clk or negedge rst_n) begin
     end else begin
         case (state)
             STATE_WEIGHT_LOAD: begin
-                if (weight_cnt < WEIGHT_LOAD_CYCLES - 1)
+                if (weight_cnt < WEIGHT_LOAD_CYCLES)
                     weight_cnt <= weight_cnt + 1'b1;
                 // else: hold at max, waiting for deser_ready
             end
@@ -192,8 +204,10 @@ always @(*) begin
         STATE_WEIGHT_LOAD: begin
             busy        = 1'b1;
             pe_enable   = 1'b1;
-            weight_wren = (weight_cnt < WEIGHT_LOAD_CYCLES);  // Deassert after last weight
-            weight_addr = weight_cnt[ADDR_WIDTH-1:0];
+            if (!weight_preloaded) begin
+                weight_wren = (weight_cnt < WEIGHT_LOAD_CYCLES);
+                weight_addr = weight_cnt[ADDR_WIDTH-1:0];
+            end
             phase       = 3'b001;
         end
 

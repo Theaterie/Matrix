@@ -63,7 +63,9 @@ module tb_systolic_array_crosscheck;
         .ACCUM_WIDTH(ACCUM_WIDTH), .K_DEPTH(K_DEPTH),
         .BUF_ADDR_W(BUF_ADDR_W), .BUF_DEPTH(256), .WT_ADDR_W(WT_ADDR_W)
     ) u_dut_a (
-        .clk(clk), .rst_n(rst_n), .start(start_a), .busy(busy_a), .done(done_a),
+        .clk(clk), .rst_n(rst_n),
+        .start(start_a), .weight_preloaded(1'b0), .prefetch_start(1'b0),
+        .busy(busy_a), .done(done_a),
         .use_bram_act(use_bram_act_a), .weight_data(weight_data_a),
         .weight_ready(weight_ready_a), .act_data(act_data_a), .act_valid(act_valid_a),
         .act_wr_en(act_wr_en_a), .act_wr_addr(act_wr_addr_a), .act_wr_data(act_wr_data_a),
@@ -78,7 +80,9 @@ module tb_systolic_array_crosscheck;
         .ACCUM_WIDTH(ACCUM_WIDTH), .K_DEPTH(K_DEPTH),
         .BUF_ADDR_W(BUF_ADDR_W), .BUF_DEPTH(256), .WT_ADDR_W(WT_ADDR_W)
     ) u_dut_b (
-        .clk(clk), .rst_n(rst_n), .start(start_b), .busy(busy_b), .done(done_b),
+        .clk(clk), .rst_n(rst_n),
+        .start(start_b), .weight_preloaded(1'b0), .prefetch_start(1'b0),
+        .busy(busy_b), .done(done_b),
         .use_bram_act(use_bram_act_b), .weight_data(weight_data_b),
         .weight_ready(weight_ready_b), .act_data(act_data_b), .act_valid(act_valid_b),
         .act_wr_en(act_wr_en_b), .act_wr_addr(act_wr_addr_b), .act_wr_data(act_wr_data_b),
@@ -195,8 +199,7 @@ module tb_systolic_array_crosscheck;
         output [ACCUM_WIDTH-1:0] val;
         begin
             @(posedge clk); res_rd_en_a <= 1; res_rd_addr_a <= addr;
-            @(posedge clk); res_rd_en_a <= 0; res_rd_addr_a <= 0;
-            @(posedge clk); val = res_rd_data_a;
+            @(posedge clk); val = res_rd_data_a; res_rd_en_a <= 0; res_rd_addr_a <= 0;
         end
     endtask
 
@@ -214,8 +217,7 @@ module tb_systolic_array_crosscheck;
                 read_res_a(base_a + i, rv_a);
                 // For DUT-B: read result BRAM at base_b + i
                 @(posedge clk); res_rd_en_b <= 1; res_rd_addr_b <= base_b + i;
-                @(posedge clk); res_rd_en_b <= 0; res_rd_addr_b <= 0;
-                @(posedge clk); rv_b = res_rd_data_b;
+                @(posedge clk); rv_b = res_rd_data_b; res_rd_en_b <= 0; res_rd_addr_b <= 0;
 
                 if (rv_a !== rv_b) begin
                     $display("  Mismatch [%0d]: BRAM=%0d, Direct=%0d", i, $signed(rv_a), $signed(rv_b));
@@ -288,8 +290,7 @@ module tb_systolic_array_crosscheck;
                 integer nz = 0;
                 for (int i = 0; i < 16; i++) begin
                     @(posedge clk); res_rd_en_b <= 1; res_rd_addr_b <= i;
-                    @(posedge clk); res_rd_en_b <= 0; res_rd_addr_b <= 0;
-                    @(posedge clk); rv = res_rd_data_b;
+                    @(posedge clk); rv = res_rd_data_b; res_rd_en_b <= 0; res_rd_addr_b <= 0;
                     if (rv !== 0 && rv !== {ACCUM_WIDTH{1'bx}}) nz++;
                 end
                 if (nz > 0) begin

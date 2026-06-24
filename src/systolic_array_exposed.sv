@@ -29,6 +29,8 @@ module systolic_array_exposed #(
 
     // ---- Control ----
     input  wire                                start,
+    input  wire                                weight_preloaded,
+    input  wire                                prefetch_start,
     output wire                                busy,
     output wire                                done,
 
@@ -124,6 +126,7 @@ module systolic_array_exposed #(
         .clk             (clk),
         .rst_n           (rst_n),
         .start           (start),
+        .weight_preloaded(weight_preloaded),
         .busy            (busy),
         .done            (done),
         .pe_clear        (ctrl_pe_clear),
@@ -137,7 +140,7 @@ module systolic_array_exposed #(
         .deser_ready     (deser_prefetch_done)
     );
 
-    assign weight_ready = (ctrl_phase == 3'b001);
+    assign weight_ready = (ctrl_phase == 3'b001) && !weight_preloaded;
     assign addr_enable  = ctrl_pe_enable;
     assign ser_capture_en = (ctrl_phase == 3'b011);
     assign ser_shift_en   = (ctrl_phase == 3'b100);
@@ -185,7 +188,7 @@ module systolic_array_exposed #(
         .act_data_out   (deser_act_data),
         .act_valid_out  (deser_act_valid),
         .act_base_addr  (act_base_addr),
-        .prefetch_start (start),
+        .prefetch_start (start || prefetch_start),
         .stream_en      (ctrl_pe_enable && (ctrl_phase == 3'b010)),
         .prefetch_done  (deser_prefetch_done),
         .stream_done    ()

@@ -178,6 +178,8 @@ module systolic_array_axis #(
         .clk           (clk),
         .rst_n         (rst_n),
         .start         (start),
+        .weight_preloaded(1'b0),  // AXI-S wrapper always loads weights
+        .prefetch_start(1'b0),
         .busy          (busy),
         .done          (done),
         .use_bram_act  (use_bram_act),
@@ -228,21 +230,20 @@ module systolic_array_axis #(
                 end
 
                 RES_READ: begin
-                    // BRAM read latency: 1 cycle after rd_en, rd_data is valid
-                    if (result_beat_cnt > 0) begin
-                        // Store previous read data
-                        result_fifo[result_beat_cnt - 1] <= res_read_data;
+                    // Store current read data(combinational BRAM: valid same cycle)
+                    if (res_read_en) begin
+                        result_fifo[result_beat_cnt] <= res_read_data;
                     end
 
-                    if (result_beat_cnt == RESULT_COUNT) begin
-                        // All results read from BRAM (last data comes next cycle)
-                        res_read_en     <= 1'b0;
+                    if (result_beat_cnt == RESULT_COUNT - 1) begin
+                        // All results read from BRAM (last data stored this cycle)
+                        res_read_en      <= 1'b0;
                         result_streaming <= 1'b1;
-                        result_beat_cnt <= 0;
-                        res_state       <= RES_STREAM;
+                        result_beat_cnt  <= 0;
+                        res_state        <= RES_STREAM;
                     end else begin
-                        res_read_addr   <= res_read_addr + 1'b1;
-                        result_beat_cnt <= result_beat_cnt + 1'b1;
+                        res_read_addr    <= res_read_addr + 1'b1;
+                        result_beat_cnt  <= result_beat_cnt + 1'b1;
                     end
                 end
 

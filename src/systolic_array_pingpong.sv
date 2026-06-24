@@ -36,6 +36,8 @@ module systolic_array_pingpong #(
 
     // ---- Control ----
     input  wire                                start,            // Pulse: begin tile computation
+    input  wire                                weight_preloaded, // 1 = weights already loaded (skip load)
+    input  wire                                prefetch_start,   // Pulse: start BRAM prefetch early
     output wire                                busy,
     output wire                                done,
     input  wire                                auto_swap,        // 1 = auto-toggle buf_sel after done
@@ -173,6 +175,8 @@ module systolic_array_pingpong #(
         .clk              (clk),
         .rst_n            (rst_n),
         .start            (start),
+        .weight_preloaded (weight_preloaded),
+        .prefetch_start   (prefetch_start),
         .busy             (busy),
         .done             (done),
         .use_bram_act     (use_bram_act),

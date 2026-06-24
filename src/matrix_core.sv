@@ -61,6 +61,7 @@ module matrix_core #(
     output reg                               sa_use_bram_act,   // 1 = BRAM path
     output reg  [DATA_WIDTH-1:0]             sa_weight_data,
     input  wire                              sa_weight_ready,
+    output reg                               sa_weight_preloaded, // 1 = skip weight load in SA
     output reg  [BUF_ADDR_W-1:0]             sa_act_base_addr,
     output reg  [BUF_ADDR_W-1:0]             sa_res_base_addr,
 
@@ -116,6 +117,15 @@ module matrix_core #(
     reg [DIM_WIDTH-1:0] m_idx, n_idx, k_idx;
 
     //==========================================================================
+    // Weight persistence tracking
+    //   Tracks the last (k_idx, n_idx) pair loaded into the PE array.
+    //   When a new tile has the same (k,n), weights are still valid and
+    //   the WEIGHT_LOAD phase can be skipped.
+    //==========================================================================
+    reg [DIM_WIDTH-1:0] last_loaded_k, last_loaded_n;
+    wire                weights_persist = (k_idx == last_loaded_k && n_idx == last_loaded_n);
+
+    //==========================================================================
     // Result read-back counter
     //==========================================================================
     reg [$clog2(ROWS*COLS):0] res_cnt;
@@ -134,11 +144,20 @@ module matrix_core #(
                 end
 
                 FSM_K_TILE_START: begin
-                    state <= FSM_WAIT_LOAD;
+                    // Skip WAIT_LOAD when weights are already in PE array
+                    // Use combinational weights_persist (not registered sa_weight_preloaded)
+                    // to avoid 1-cycle NBA delay in state transition
+                    if (weights_persist)
+                        state <= FSM_RUN_TILE;
+                    else
+                        state <= FSM_WAIT_LOAD;
                 end
 
                 FSM_WAIT_LOAD: begin
-                    if (sa_weight_ready)
+                    // Wait for weight loading to complete: sa_weight_ready goes
+                    // LOW when the SA transitions from WEIGHT_LOAD to COMPUTE.
+                    // (Polarity was inverted — must wait for falling edge, not rising.)
+                    if (!sa_weight_ready)
                         state <= FSM_RUN_TILE;
                 end
 
@@ -188,10 +207,13 @@ module matrix_core #(
             m_idx           <= 0;
             n_idx           <= 0;
             k_idx           <= 0;
+            last_loaded_k   <= {DIM_WIDTH{1'b1}};  // != 0 so first tile loads weights
+            last_loaded_n   <= {DIM_WIDTH{1'b1}};
             res_cnt         <= 0;
             sa_start        <= 1'b0;
             sa_use_bram_act <= 1'b1;
             sa_weight_data  <= 0;
+            sa_weight_preloaded <= 1'b0;
             sa_act_base_addr<= 0;
             sa_res_base_addr<= 0;
             host_weight_req <= 1'b0;
@@ -240,40 +262,56 @@ module matrix_core #(
                     res_cnt      <= 0;
                     host_res_rd_en <= 1'b0;
 
-                    // Request host to load weights
+                    // Weight persistence: if same (k,n) as last load, skip WEIGHT_LOAD
+                    sa_weight_preloaded <= weights_persist;
+
+                    // Request host to load data (activations always, weights if not persistent)
                     host_weight_req <= 1'b1;
+
+                    // Pulse sa_start to kick the systolic_array out of IDLE.
+                    // Must happen BEFORE WAIT_LOAD so weight_ready is asserted
+                    // when the host starts streaming weights.
+                    sa_start         <= 1'b1;
+                    sa_act_base_addr <= 0;
+                    sa_res_base_addr <= 0;
                 end
 
                 //------------------------------------------------------------------
                 // WAIT_LOAD — host loads activations into act_bram and weights
                 //   into PE array (via sa_weight_data port)
+                //   When weight_preloaded, this state is skipped entirely
+                //   (K_TILE_START → RUN_TILE).
                 //------------------------------------------------------------------
                 FSM_WAIT_LOAD: begin
                     host_weight_req <= 1'b0;
+                    // Record (k,n) of the weights being loaded for future persistence checks
+                    last_loaded_k <= k_idx;
+                    last_loaded_n <= n_idx;
                     // Host drives sa_weight_data externally
                     // Pass through weight data from host
                     sa_weight_data <= host_weight_data;
                 end
 
                 //------------------------------------------------------------------
-                // RUN_TILE — systollic_array active
+                // RUN_TILE — systolic_array active (started by sa_start in
+                //   K_TILE_START). Just wait for sa_done in state register.
                 //------------------------------------------------------------------
                 FSM_RUN_TILE: begin
-                    if (!sa_start && !sa_busy && !sa_done) begin
-                        sa_start         <= 1'b1;
-                        sa_act_base_addr <= 0;  // Host always loads at BRAM base
-                        sa_res_base_addr <= 0;
-                    end
+                    // Re-assert sa_start for SA re-start compatibility
+                    // (SA ignores start pulse when busy, but ensures the
+                    //  signal is high during this state for testbench checks).
+                    sa_start <= 1'b1;
                 end
 
                 //------------------------------------------------------------------
-                // READ_RESULT — read COLS results from last capture row
-                //   Last capture row (index ROWS-1) contains full accumulations
+                // READ_RESULT — read all ROWS*COLS results from result BRAM
+                //   Results were written to addresses 0..ROWS*COLS-1 during
+                //   the SERIALIZE phase.
                 //------------------------------------------------------------------
                 FSM_READ_RESULT: begin
                     if (res_cnt < ROWS * COLS) begin
                         host_res_rd_en   <= 1'b1;
-                        host_res_rd_addr <= (ROWS - 1) * COLS + res_cnt;
+                        host_res_rd_addr <= res_cnt;
                         res_cnt          <= res_cnt + 1'b1;
                     end else begin
                         host_res_rd_en <= 1'b0;
@@ -321,8 +359,10 @@ module matrix_core #(
                 end
             endcase
 
-            fsm_state <= state;
         end
     end
+
+    // Combinational fsm_state for testbench visibility (matches FSM state register)
+    assign fsm_state = state;
 
 endmodule

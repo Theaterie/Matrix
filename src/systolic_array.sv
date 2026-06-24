@@ -36,6 +36,8 @@ module systolic_array #(
 
     // ---- Control ----
     input  wire                                start,            // Pulse: begin tile computation
+    input  wire                                weight_preloaded, // 1 = weights already in PE array (skip load)
+    input  wire                                prefetch_start,   // Pulse: start BRAM prefetch early
     output wire                                busy,             // High during operation
     output wire                                done,             // Pulse: tile computation complete
 
@@ -141,6 +143,7 @@ controller #(
     .clk             (clk),
     .rst_n           (rst_n),
     .start           (start),
+    .weight_preloaded(weight_preloaded),
     .busy            (busy),
     .done            (done),
     .pe_clear        (ctrl_pe_clear),
@@ -154,8 +157,8 @@ controller #(
     .deser_ready     (deser_ready_gated)
 );
 
-// Weight ready during WEIGHT_LOAD phase
-assign weight_ready = (ctrl_phase == 3'b001);
+// Weight ready during WEIGHT_LOAD phase (gated when preloaded)
+assign weight_ready = (ctrl_phase == 3'b001) && !weight_preloaded;
 assign addr_enable  = ctrl_pe_enable;
 
 // Serializer control: capture during READOUT, shift during SERIALIZE
@@ -208,7 +211,7 @@ act_deserializer #(
     .act_data_out   (deser_act_data),
     .act_valid_out  (deser_act_valid),
     .act_base_addr  (act_base_addr),
-    .prefetch_start (start),
+    .prefetch_start (start || prefetch_start),
     .stream_en      (ctrl_pe_enable && (ctrl_phase == 3'b010)),  // COMPUTE phase
     .prefetch_done  (deser_prefetch_done),
     .stream_done    ()  // Not used — controller manages COMPUTE cycle count

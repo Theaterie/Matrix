@@ -181,11 +181,12 @@ module act_deserializer #(
                 // PREFETCH -- sequentially read BRAM, buffer incoming data
                 //------------------------------------------------------------------
                 FSM_PREFETCH: begin
-                    // Track rd_en for data-valid gating
+                    // Track rd_en for pf_done gating
                     rd_active <= bram_rd_en;
 
-                    // Store data from PREVIOUS cycle's read
-                    if (rd_active && (wr_ptr < TOTAL_ENTRIES)) begin
+                    // Store data from current cycle's read
+                    // (combinational BRAM: data valid same cycle as rd_addr)
+                    if (bram_rd_en && (wr_ptr < TOTAL_ENTRIES)) begin
                         act_buffer[wr_row][wr_k] <= bram_rd_data;
                         wr_ptr <= wr_ptr + 1'b1;
                     end

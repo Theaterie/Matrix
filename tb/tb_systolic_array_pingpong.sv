@@ -75,7 +75,9 @@ module tb_systolic_array_pingpong;
         .ACCUM_WIDTH(ACCUM_WIDTH), .K_DEPTH(K_DEPTH),
         .BUF_ADDR_W(BUF_ADDR_W), .BUF_DEPTH(BUF_DEPTH), .WT_ADDR_W(WT_ADDR_W)
     ) u_dut (
-        .clk(clk), .rst_n(rst_n), .start(start), .busy(busy), .done(done),
+        .clk(clk), .rst_n(rst_n),
+        .start(start), .weight_preloaded(1'b0), .prefetch_start(1'b0),
+        .busy(busy), .done(done),
         .auto_swap(auto_swap), .buf_sel(buf_sel),
         .weight_data(weight_data), .weight_ready(weight_ready),
         .host_act_wr_en(host_act_wr_en), .host_act_wr_addr(host_act_wr_addr),
@@ -159,8 +161,7 @@ module tb_systolic_array_pingpong;
         output [ACCUM_WIDTH-1:0] val;
         begin
             @(posedge clk); host_res_rd_en <= 1; host_res_rd_addr <= addr;
-            @(posedge clk); host_res_rd_en <= 0; host_res_rd_addr <= 0;
-            @(posedge clk); val = host_res_rd_data;
+            @(posedge clk); val = host_res_rd_data; host_res_rd_en <= 0; host_res_rd_addr <= 0;
         end
     endtask
 

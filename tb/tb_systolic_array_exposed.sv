@@ -63,7 +63,9 @@ module tb_systolic_array_exposed;
         .ACCUM_WIDTH(ACCUM_WIDTH), .K_DEPTH(K_DEPTH),
         .BUF_ADDR_W(BUF_ADDR_W), .BUF_DEPTH(BUF_DEPTH), .WT_ADDR_W(WT_ADDR_W)
     ) u_dut (
-        .clk(clk), .rst_n(rst_n), .start(start), .busy(busy), .done(done),
+        .clk(clk), .rst_n(rst_n),
+        .start(start), .weight_preloaded(1'b0), .prefetch_start(1'b0),
+        .busy(busy), .done(done),
         .use_bram_act(use_bram_act), .weight_data(weight_data),
         .weight_ready(weight_ready), .act_data(act_data), .act_valid(act_valid),
         .act_bram_rd_en(act_bram_rd_en), .act_bram_rd_addr(act_bram_rd_addr),

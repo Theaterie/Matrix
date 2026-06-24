@@ -61,7 +61,7 @@ module tb_buffer_ram;
     //--------------------------------------------------------------------------
     task automatic check_read;
         input [DATA_WIDTH-1:0] expected_val;
-        input [255:0]          test_name;
+        input string           test_name;
         begin
             if (rd_data === expected_val) begin
                 $display("[PASS] %0s: rd_data = 0x%0h (expected 0x%0h)", test_name, rd_data, expected_val);

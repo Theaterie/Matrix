@@ -1,17 +1,51 @@
-# 1. 忽略所有文件和文件夹
+#==============================================================================
+# .gitignore — Matrix Multiplier Systolic Array
+#==============================================================================
+# Strategy: ignore everything by default, then explicitly whitelist
+# source files. This prevents simulation artifacts and build outputs
+# from accidentally being committed.
+#==============================================================================
+
+# ---- 1. Ignore everything ----
 *
 
-# 2. 允许所有文件夹本身被 Git 检索（关键：这样 Git 才能进到子目录里去发现 .sv 文件）
+# ---- 2. Un-ignore directories (so git can traverse into them) ----
 !*/
 
-# 3. 允许 .gitignore 自身
+# ---- 3. Always track .gitignore itself ----
 !.gitignore
 
-# 4. 允许 s 目录及其下所有内容
-!/s/
-!/s/**
+# ---- 4. Source directories ----
+!/src/
+!/src/**
+!/tb/
+!/tb/**
+!/scripts/
+!/scripts/**
 
-# 5. 允许所有 .sv 文件（无论在哪个目录下）
-!*.sv
-!*.tcl
-!*.sh
+# ---- 5. File types to track ----
+!*.sv        # SystemVerilog sources
+!*.v         # Verilog sources
+!*.py        # Python scripts (golden model)
+!*.tcl       # Tcl scripts
+!*.sh        # Shell scripts
+!*.md        # Markdown documentation
+!*.json      # JSON config files
+!*.xdc       # XDC constraint files
+
+# ---- 6. Explicit ignores (simulation build artifacts) ----
+xsim_work/
+xsim_manual/
+sim_build_pe/
+*.wdb
+*.vcd
+*.log
+*.jou
+*.pb
+*.str
+webtalk*.txt
+webtalk*.backup
+*.backup.jou
+*.backup.log
+vivado_*
+.xsim/

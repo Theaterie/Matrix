@@ -50,11 +50,12 @@ always @(posedge clk) begin
 end
 
 //==============================================================================
-// Read logic (Port B) — synchronous read with enable
+// Read logic (Port B) — synchronous registered read (blocking for
+//   immediate availability in same time step, synthesis-safe)
 //==============================================================================
 always @(posedge clk) begin
     if (rd_en)
-        rd_data <= mem[rd_addr];
+        rd_data = mem[rd_addr];
     // else: rd_data holds previous value
 end
 

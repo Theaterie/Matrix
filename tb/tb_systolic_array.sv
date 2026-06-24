@@ -44,7 +44,9 @@ module tb_systolic_array;
         .ACCUM_WIDTH(ACCUM_WIDTH), .K_DEPTH(K_DEPTH),
         .BUF_ADDR_W(BUF_ADDR_W), .BUF_DEPTH(256), .WT_ADDR_W(WT_ADDR_W)
     ) u_dut (
-        .clk(clk), .rst_n(rst_n), .start(start), .busy(busy), .done(done),
+        .clk(clk), .rst_n(rst_n),
+        .start(start), .weight_preloaded(1'b0), .prefetch_start(1'b0),
+        .busy(busy), .done(done),
         .use_bram_act(use_bram_act), .weight_data(weight_data),
         .weight_ready(weight_ready), .act_data(act_data), .act_valid(act_valid),
         .act_wr_en(act_wr_en), .act_wr_addr(act_wr_addr), .act_wr_data(act_wr_data),
@@ -98,8 +100,7 @@ module tb_systolic_array;
         output [ACCUM_WIDTH-1:0] val;
         begin
             @(posedge clk); res_rd_en <= 1; res_rd_addr <= addr;
-            @(posedge clk); res_rd_en <= 0; res_rd_addr <= 0;
-            @(posedge clk); val = res_rd_data;  // BRAM data valid now
+            @(posedge clk); val = res_rd_data; res_rd_en <= 0; res_rd_addr <= 0;
         end
     endtask
 

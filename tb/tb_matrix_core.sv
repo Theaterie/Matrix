@@ -70,6 +70,7 @@ module tb_matrix_core;
     wire              sa_use_bram_act;
     wire [DATA_WIDTH-1:0] sa_weight_data;
     reg               sa_weight_ready;
+    wire              sa_weight_preloaded;
     wire [BUF_ADDR_W-1:0] sa_act_base_addr;
     wire [BUF_ADDR_W-1:0] sa_res_base_addr;
 
@@ -99,6 +100,7 @@ module tb_matrix_core;
     integer SA_CYCLE_DELAY;
     integer SA_WEIGHT_READY_DELAY;
     integer sa_cycle_cnt;
+    integer wr_cycle_cnt;
     reg     sa_active;
     reg     wr_ready_active;
 
@@ -118,6 +120,7 @@ module tb_matrix_core;
         .sa_use_bram_act(sa_use_bram_act),
         .sa_weight_data(sa_weight_data),
         .sa_weight_ready(sa_weight_ready),
+        .sa_weight_preloaded(sa_weight_preloaded),
         .sa_act_base_addr(sa_act_base_addr),
         .sa_res_base_addr(sa_res_base_addr),
         .host_act_wr_en(host_act_wr_en),
@@ -146,6 +149,7 @@ module tb_matrix_core;
             sa_busy <= 0;
             sa_done <= 0;
             sa_cycle_cnt <= 0;
+            wr_cycle_cnt <= 0;
             sa_active <= 0;
             wr_ready_active <= 0;
             sa_weight_ready <= 0;
@@ -159,7 +163,7 @@ module tb_matrix_core;
                 sa_cycle_cnt <= 0;
             end
 
-            // SA running
+            // SA running (separate counter from weight-ready)
             if (sa_active) begin
                 sa_cycle_cnt <= sa_cycle_cnt + 1;
                 if (sa_cycle_cnt == SA_CYCLE_DELAY - 1) begin
@@ -172,11 +176,11 @@ module tb_matrix_core;
             // Weight ready: asserted N cycles after K_TILE_START
             if (host_weight_req) begin
                 wr_ready_active <= 1;
-                sa_cycle_cnt <= 0;
+                wr_cycle_cnt <= 0;
             end
             if (wr_ready_active) begin
-                sa_cycle_cnt <= sa_cycle_cnt + 1;
-                if (sa_cycle_cnt == SA_WEIGHT_READY_DELAY - 1) begin
+                wr_cycle_cnt <= wr_cycle_cnt + 1;
+                if (wr_cycle_cnt == SA_WEIGHT_READY_DELAY - 1) begin
                     sa_weight_ready <= 1;
                     wr_ready_active <= 0;
                 end
@@ -209,10 +213,10 @@ module tb_matrix_core;
     // Check task
     //--------------------------------------------------------------------------
     task automatic check_eq;
-        input [255:0] test_name;
+        input string test_name;
         input integer actual;
         input integer expected;
-        input [255:0] sig_name;
+        input string sig_name;
         begin
             if (actual === expected) begin
                 $display("[PASS] %0s: %0s = %0d (expected %0d)", test_name, sig_name, actual, expected);
@@ -226,10 +230,10 @@ module tb_matrix_core;
     endtask
 
     task automatic check_flag;
-        input [255:0] test_name;
+        input string test_name;
         input integer actual;
         input integer expected;
-        input [255:0] sig_name;
+        input string sig_name;
         begin
             if (actual === expected) begin
                 $display("[PASS] %0s: %0s = %b (expected %b)", test_name, sig_name, actual, expected);
@@ -266,7 +270,7 @@ module tb_matrix_core;
         host_weight_data = 0; host_res_rd_data = 0;
         SA_CYCLE_DELAY = 4;     // SA takes 4 cycles per tile (fast sim)
         SA_WEIGHT_READY_DELAY = 2;  // weight ready after 2 cycles
-        sa_cycle_cnt = 0; sa_active = 0; wr_ready_active = 0;
+        sa_cycle_cnt = 0; wr_cycle_cnt = 0; sa_active = 0; wr_ready_active = 0;
         for (int i = 0; i < BUF_DEPTH; i++) res_bram[i] = 0;
         test_count = 0; pass_count = 0; fail_count = 0;
 
@@ -383,8 +387,8 @@ module tb_matrix_core;
                 @(posedge clk);
                 check_flag($sformatf("TC08[%0d]: host_res_rd_en=1", i), host_res_rd_en, 1, "host_res_rd_en");
                 // Address = (ROWS-1)*COLS + i = 3*4 + i = 12 + i
-                check_eq($sformatf("TC08[%0d]: addr=%0d", i, 12+i),
-                    host_res_rd_addr, (ROWS-1)*COLS + i, "host_res_rd_addr");
+                check_eq($sformatf("TC08[%0d]: addr=%0d", i, i),
+                    host_res_rd_addr, i, "host_res_rd_addr");
             end
         end
 
