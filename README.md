@@ -1,0 +1,1 @@
+A 16x16 Weight Stationary Systolic Array Matrix Multiplier implemented in SystemVerilog, optimized for deep learning hardware acceleration by keeping weights fixed in PEs to minimize memory access power.
