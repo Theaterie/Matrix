@@ -249,7 +249,6 @@ module tb_controller;
             integer d;
             for (d = 0; d < READOUT_CYCLES; d = d + 1) begin
                 @(posedge clk);
-                #1ps;
                 check_signal($sformatf("TC08[%0d]: pe_enable=1", d),
                     pe_enable == 1, $sformatf("pe_enable=%b", pe_enable));
                 check_signal($sformatf("TC08[%0d]: readout_cycle=%0d", d, d),
@@ -278,7 +277,6 @@ module tb_controller;
             integer s;
             for (s = 0; s < SERIALIZE_CYCLES; s = s + 1) begin
                 @(posedge clk);
-                #1ps;
                 check_signal($sformatf("TC10[%0d]: serialize_cycle=%0d", s, s),
                     serialize_cycle == s, $sformatf("serialize_cycle=%0d", serialize_cycle));
             end
@@ -322,7 +320,7 @@ module tb_controller;
         $display("============================================================");
 
         begin : tc13_block
-            reg [2:0] phases_seen;
+            reg [5:0] phases_seen;
             phases_seen = 0;
 
             deser_ready <= 1'b1;  // Pre-assert so no stall

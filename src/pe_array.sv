@@ -113,10 +113,14 @@ wire [DATA_WIDTH-1:0] act_net   [0:ROWS-1][0:COLS];
 wire                  valid_net [0:ROWS-1][0:COLS];
 
 // Vertical: partial sum flow top -> bottom
-//   psum_net[r][c] = partial sum at column c, AFTER row r-1
+//   psum_net[r][c] = partial sum at column c, after row r-1
 //   So psum_net[0][c] = 0 (top boundary), psum_net[ROWS][c] = result
 wire [ACCUM_WIDTH-1:0] psum_net       [0:ROWS][0:COLS-1];
 wire                   psum_valid_net [0:ROWS][0:COLS-1];
+
+// Raw PE activation outputs (before weight_wren gating)
+wire [DATA_WIDTH-1:0] pe_act_out_raw [0:ROWS-1][0:COLS-1];
+wire                  pe_valid_out_raw [0:ROWS-1][0:COLS-1];
 
 //==============================================================================
 // Weight enable decode (one-hot per PE from linear address)
@@ -141,10 +145,10 @@ generate
         assign psum_valid_net[0][c] = 1'b0;
     end
 
-    // Left boundary: activation = skewed input
+    // Left boundary: activation = skewed input (gated during weight loading)
     for (r = 0; r < ROWS; r = r + 1) begin : gen_left_act
-        assign act_net[r][0]   = act_skewed[r];
-        assign valid_net[r][0] = valid_skewed[r];
+        assign act_net[r][0]   = weight_wren ? {DATA_WIDTH{1'b0}} : act_skewed[r];
+        assign valid_net[r][0] = weight_wren ? 1'b0 : valid_skewed[r];
     end
 endgenerate
 
@@ -200,6 +204,36 @@ generate
 endgenerate
 
 //==============================================================================
+// Clear horizontal pipeline (per-column delay)
+//   clear_skewed[r] already has 2*r cycles of row skew.
+//   Each column adds 2 more cycles to match the activation pipeline delay
+//   through PE(r,0)..PE(r,c-1), ensuring clear arrives at each PE simultaneously
+//   with its first valid activation.
+//==============================================================================
+wire clear_net [0:ROWS-1][0:COLS-1];
+
+generate
+    for (r = 0; r < ROWS; r = r + 1) begin : gen_clear_pipe_row
+        for (c = 0; c < COLS; c = c + 1) begin : gen_clear_pipe_col
+            if (c == 0) begin
+                assign clear_net[r][c] = clear_skewed[r];
+            end else begin
+                reg [1:0] clear_pipe;
+                always @(posedge clk or negedge rst_n) begin
+                    if (!rst_n) begin
+                        clear_pipe <= 2'b00;
+                    end else if (enable) begin
+                        clear_pipe[0] <= clear_net[r][c-1];
+                        clear_pipe[1] <= clear_pipe[0];
+                    end
+                end
+                assign clear_net[r][c] = clear_pipe[1];
+            end
+        end
+    end
+endgenerate
+
+//==============================================================================
 // PE grid instantiation (ROWS × COLS)
 //==============================================================================
 generate
@@ -215,11 +249,11 @@ generate
 
                 // Activation: left -> right
                 //   act_in uses pe_act_in MUX for correct weight loading
-                //   act_out drives act_net for normal systolic propagation
+                //   act_out drives act_net (gated) for normal systolic propagation
                 .act_in      (pe_act_in[r][c]),
                 .valid_in    (valid_net[r][c]),
-                .act_out     (act_net[r][c+1]),
-                .valid_out   (valid_net[r][c+1]),
+                .act_out     (pe_act_out_raw[r][c]),
+                .valid_out   (pe_valid_out_raw[r][c]),
 
                 // Partial sum: top -> bottom
                 .psum_in     (psum_net[r][c]),
@@ -228,9 +262,14 @@ generate
 
                 // Control
                 .weight_load (weight_en[r][c]),
-                .clear       (clear_skewed[r]),
+                .clear       (clear_net[r][c]),
                 .enable      (enable)
             );
+
+            // Gate act_net during weight loading to prevent weight_data
+            // from contaminating the systolic activation pipeline
+            assign act_net[r][c+1]   = weight_wren ? {DATA_WIDTH{1'b0}} : pe_act_out_raw[r][c];
+            assign valid_net[r][c+1] = weight_wren ? 1'b0 : pe_valid_out_raw[r][c];
 
         end
     end

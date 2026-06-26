@@ -14,17 +14,16 @@
 //   SERIALIZE    (3'd4) — Serialize captured results into result BRAM
 //   DONE         (3'd5) — Pulse done, return to IDLE
 //
-// Timing (16x16, K=16):
-//   Weight load: 256 cycles (0 if weight_preloaded=1)
-//   Compute:      16 cycles (one activation vector per cycle)
-//   Readout:      64 cycles (drain 2*(ROWS+COLS) pipeline stages)
-//   Serialize:   256 cycles (ROWS*COLS results, one per cycle)
-//   Total:       ~592 cycles (weight_preloaded: ~336)
+// Timing (ROWS=4, COLS=4, K_DEPTH=4):
+//   Weight load: 16 cycles (0 if weight_preloaded=1)
+//   Compute:      4 cycles (one activation vector per cycle)
+//   Readout:     16 cycles (drain 2*(ROWS+COLS) pipeline stages)
+//   Serialize:   16 cycles (ROWS*COLS results, one per cycle)
 //
 // weight_preloaded optimization:
 //   When weights are already in the PE array (reused across M rows with
-//   same (K,N) tile), skip the 256-cycle WEIGHT_LOAD phase. The controller
-//   still waits for deser_ready (prefetch from BRAM) before entering COMPUTE.
+//   same (K,N) tile), skip weight loading entirely.  The controller still
+//   waits for deser_ready (prefetch from BRAM) before entering COMPUTE.
 //==============================================================================
 
 module controller #(
@@ -75,111 +74,67 @@ reg [2:0] state, next_state;
 //==============================================================================
 // Cycle counters
 //==============================================================================
-localparam WEIGHT_LOAD_CYCLES = ROWS * COLS;               // 256
+localparam WEIGHT_LOAD_CYCLES = ROWS * COLS;               // e.g. 256
 localparam COMPUTE_CYCLES     = K_DEPTH;                   // K activation vectors
-localparam READOUT_CYCLES     = 2 * (ROWS + COLS);         // 64 — pipeline drain
-localparam SERIALIZE_CYCLES   = ROWS * COLS;               // 256 — serialized results
+localparam READOUT_CYCLES     = 2 * (ROWS + COLS);         // e.g. 64 — pipeline drain
+localparam SERIALIZE_CYCLES   = ROWS * COLS;               // e.g. 256 — serialized results
 
 reg [$clog2(WEIGHT_LOAD_CYCLES):0] weight_cnt;     // 0..256
 reg [$clog2(COMPUTE_CYCLES):0]     compute_cnt;     // 0..K_DEPTH
 reg [$clog2(READOUT_CYCLES):0]     readout_cnt;     // 0..64
 reg [$clog2(SERIALIZE_CYCLES):0]   serialize_cnt;   // 0..256
-reg                                weight_active;   // 1 cycle after entering WEIGHT_LOAD
 
 //==============================================================================
-// State register
-//==============================================================================
-always @(posedge clk or negedge rst_n) begin
-    if (!rst_n)
-        state <= STATE_IDLE;
-    else
-        state <= next_state;
-end
-
-//==============================================================================
-// weight_active: goes high 1 cycle after entering WEIGHT_LOAD.
-// Prevents weight_wren from asserting on the transition cycle, giving the
-// testbench one cycle to set weight_data before it is captured.
-//==============================================================================
-always @(posedge clk or negedge rst_n) begin
-    if (!rst_n)
-        weight_active <= 1'b0;
-    else
-        weight_active <= (state == STATE_WEIGHT_LOAD);
-end
-
-//==============================================================================
-// Next-state logic
-//==============================================================================
-always @(*) begin
-    next_state = state;
-    case (state)
-        STATE_IDLE: begin
-            if (start)
-                next_state = STATE_WEIGHT_LOAD;
-        end
-
-        STATE_WEIGHT_LOAD: begin
-            // weight_preloaded: skip weight loading, wait only for prefetch
-            if (weight_preloaded) begin
-                if (deser_ready)
-                    next_state = STATE_COMPUTE;
-            // Normal: wait for all weights loaded AND prefetch done
-            end else begin
-                if (weight_cnt >= WEIGHT_LOAD_CYCLES - 1 && deser_ready)
-                    next_state = STATE_COMPUTE;
-            end
-        end
-
-        STATE_COMPUTE: begin
-            if (compute_cnt == COMPUTE_CYCLES - 1)
-                next_state = STATE_READOUT;
-        end
-
-        STATE_READOUT: begin
-            if (readout_cnt == READOUT_CYCLES - 1)
-                next_state = STATE_SERIALIZE;
-        end
-
-        STATE_SERIALIZE: begin
-            if (serialize_cnt == SERIALIZE_CYCLES - 1)
-                next_state = STATE_DONE;
-        end
-
-        STATE_DONE: begin
-            next_state = STATE_IDLE;
-        end
-
-        default: next_state = STATE_IDLE;
-    endcase
-end
-
-//==============================================================================
-// Cycle counters
+// Sequential block — state and counters in ONE block
+// eliminates inter-block race conditions.
 //==============================================================================
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
+        state         <= STATE_IDLE;
         weight_cnt    <= 0;
         compute_cnt   <= 0;
         readout_cnt   <= 0;
         serialize_cnt <= 0;
     end else begin
+        // ---- State transition ----
+        // Transitions are decided here using stable REGISTERED counter values
+        // (committed by the previous clock's NBA), NOT via the combo next_state
+        // block.  This avoids a race where the combo evaluates AFTER the
+        // sequential block at the same posedge and its output is missed.
+        if (state == STATE_WEIGHT_LOAD && !weight_preloaded &&
+            weight_cnt >= WEIGHT_LOAD_CYCLES - 1 && deser_ready)
+            state <= STATE_COMPUTE;
+        else if (state == STATE_COMPUTE && compute_cnt >= COMPUTE_CYCLES - 1)
+            state <= STATE_READOUT;
+        else if (state == STATE_READOUT && readout_cnt >= READOUT_CYCLES - 1)
+            state <= STATE_SERIALIZE;
+        else if (state == STATE_SERIALIZE && serialize_cnt >= SERIALIZE_CYCLES - 1)
+            state <= STATE_DONE;
+        else
+            state <= next_state;  // IDLE→WEIGHT_LOAD, DONE→IDLE, stalls
+
+        // ---- Cycle counters (driven by OLD state, the state we are LEAVING) ----
+        // Gated by cnt < CYCLES-1 so we stop incrementing on the LAST cycle
+        // of each phase — the transition fires on that same cycle (see above).
         case (state)
             STATE_WEIGHT_LOAD: begin
-                if (weight_active && weight_cnt < WEIGHT_LOAD_CYCLES)
+                if (!weight_preloaded && weight_cnt < WEIGHT_LOAD_CYCLES - 1)
                     weight_cnt <= weight_cnt + 1'b1;
             end
 
             STATE_COMPUTE: begin
-                compute_cnt <= compute_cnt + 1'b1;
+                if (compute_cnt < COMPUTE_CYCLES - 1)
+                    compute_cnt <= compute_cnt + 1'b1;
             end
 
             STATE_READOUT: begin
-                readout_cnt <= readout_cnt + 1'b1;
+                if (readout_cnt < READOUT_CYCLES - 1)
+                    readout_cnt <= readout_cnt + 1'b1;
             end
 
             STATE_SERIALIZE: begin
-                serialize_cnt <= serialize_cnt + 1'b1;
+                if (serialize_cnt < SERIALIZE_CYCLES - 1)
+                    serialize_cnt <= serialize_cnt + 1'b1;
             end
 
             default: begin
@@ -193,7 +148,53 @@ always @(posedge clk or negedge rst_n) begin
 end
 
 //==============================================================================
-// Output logic (Mealy: computed from current state + counters)
+// Next-state logic (combinational)
+//==============================================================================
+always @(*) begin
+    next_state = state;
+    case (state)
+        STATE_IDLE: begin
+            if (start)
+                next_state = STATE_WEIGHT_LOAD;
+        end
+
+        STATE_WEIGHT_LOAD: begin
+            if (weight_preloaded) begin
+                if (deser_ready)
+                    next_state = STATE_COMPUTE;
+            end else begin
+                if (weight_cnt >= WEIGHT_LOAD_CYCLES - 1 && deser_ready)
+                    next_state = STATE_COMPUTE;
+            end
+        end
+
+        STATE_COMPUTE: begin
+            if (compute_cnt == COMPUTE_CYCLES - 1)
+                next_state = STATE_READOUT;
+        end
+
+        STATE_READOUT: begin
+            if (readout_cnt >= READOUT_CYCLES - 1)
+                next_state = STATE_SERIALIZE;
+        end
+
+        STATE_SERIALIZE: begin
+            if (serialize_cnt >= SERIALIZE_CYCLES - 1)
+                next_state = STATE_DONE;
+        end
+
+        STATE_DONE: begin
+            next_state = STATE_IDLE;
+        end
+
+        default: next_state = STATE_IDLE;
+    endcase
+end
+
+//==============================================================================
+// Combinational output logic
+//   — All outputs are purely combinational from state + counters.
+//     No registered delays — values are valid at @(posedge clk).
 //==============================================================================
 always @(*) begin
     // Defaults
@@ -214,19 +215,19 @@ always @(*) begin
         end
 
         STATE_WEIGHT_LOAD: begin
-            busy        = 1'b1;
-            pe_enable   = 1'b1;
-            if (!weight_preloaded && weight_active) begin
-                weight_wren = (weight_cnt < WEIGHT_LOAD_CYCLES);
+            busy      = 1'b1;
+            pe_enable = 1'b1;
+            phase     = 3'b001;
+            if (!weight_preloaded) begin
+                weight_wren = 1'b1;
                 weight_addr = weight_cnt[ADDR_WIDTH-1:0];
             end
-            phase       = 3'b001;
         end
 
         STATE_COMPUTE: begin
             busy          = 1'b1;
             pe_enable     = 1'b1;
-            pe_clear      = (compute_cnt == 0);   // Clear accumulators on first cycle
+            pe_clear      = (compute_cnt == 0);
             phase         = 3'b010;
             compute_cycle = compute_cnt;
         end
@@ -234,14 +235,13 @@ always @(*) begin
         STATE_READOUT: begin
             busy          = 1'b1;
             pe_enable     = 1'b1;
-            // pe_clear = 0 during readout (continue accumulating final partial sums)
             phase         = 3'b011;
             readout_cycle = readout_cnt;
         end
 
         STATE_SERIALIZE: begin
             busy            = 1'b1;
-            pe_enable       = 1'b1;   // Keep PE array clocked (holds idle state)
+            pe_enable       = 1'b1;
             phase           = 3'b100;
             serialize_cycle = serialize_cnt;
         end
@@ -249,7 +249,6 @@ always @(*) begin
         STATE_DONE: begin
             done  = 1'b1;
             phase = 3'b101;
-            // Pulse done for one cycle, then return to IDLE
         end
 
         default: begin

@@ -3,14 +3,17 @@
 //==============================================================================
 // Module:  mac_unit (Multiply-Accumulate Unit)
 // Purpose: Matrix multiplication IP core — lowest-level arithmetic unit
-//          Computes acc_out = a_in × b_in + acc_in
+//          Computes acc_out = acc_d1 + (own_acc_old + a_in × b_in)
+//          which equals the cumulative sum through this PE (upstream +
+//          own contributions) across all K activations processed so far.
 //==============================================================================
 // Design notes:
 //   1. Signed integer multiply, product width = 2×DATA_WIDTH
 //   2. Accumulator width = ACCUM_WIDTH, sized to prevent overflow over K sums
 //   3. 2-stage pipeline — Stage1=multiply, Stage2=accumulate (maps to DSP48)
 //   4. clear: resets accumulator for a new dot-product
-//   5. enable=0 stalls the entire pipeline (all registers hold)
+//   5. enable=0 flushes the entire pipeline (clears all registers) to prevent
+//      stale partial sums from leaking into the next tile computation
 //   6. valid propagates as a shift register through pipeline stages
 //==============================================================================
 
@@ -55,8 +58,10 @@ reg                             valid_s2;          // Valid flag for stage 2
 // Stage 1: Signed multiply (DSP input-register stage)
 //==============================================================================
 // When enable=1: capture new data, advance pipeline
-// When enable=0: clear pipeline registers (between tiles in IDLE) to prevent
-//                residual psum from leaking into the next tile computation
+// When enable=0: flush pipeline registers to prevent residual psum from
+//                leaking into the next tile computation (new tile starts
+//                with clear=1 which resets own_acc in Stage 2, but stale
+//                mult_result_r/acc_d1 must also be cleared)
 //==============================================================================
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
