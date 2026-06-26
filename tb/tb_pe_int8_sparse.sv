@@ -11,9 +11,13 @@
 //   TC06 — Clear accumulator (new dot-product)
 //   TC07 — Enable stall (pipeline freeze)
 //   TC08 — Signed negative values
-//   TC09 — SPARSE_ENABLE=0 mode (skip logic disabled)
+//   TC09 — Sparsity functional verification (skip on zeros)
 //   TC10 — Status outputs (is_zero_weight, skip_cycle)
 //   TC11 — Mixed sparse/non-sparse sequence
+//   TC12 — SPARSE_ENABLE=0: zero-skip logic disabled (separate DUT)
+//   TC13 — DUAL_ISSUE=1: basic MAC sanity (separate DUT)
+//   TC12 — SPARSE_ENABLE=0: zero-weight does not trigger skip
+//   TC13 — DUAL_ISSUE=1: sanity check with basic MAC
 //==============================================================================
 
 `timescale 1ns / 1ps
@@ -71,6 +75,68 @@ module tb_pe_int8_sparse;
     // Clock
     //--------------------------------------------------------------------------
     always #(CLK_PERIOD/2) clk = ~clk;
+
+    //--------------------------------------------------------------------------
+    // DUT B: SPARSE_ENABLE=0 (zero-skip logic disabled)
+    //--------------------------------------------------------------------------
+    wire              is_zero_weight_ns, skip_cycle_ns;
+    wire signed [DATA_WIDTH-1:0] act_out_ns;
+    wire              valid_out_ns;
+    wire signed [ACCUM_WIDTH-1:0] psum_out_ns;
+    wire              psum_valid_ns;
+
+    pe_int8_sparse #(
+        .DATA_WIDTH    (DATA_WIDTH),
+        .ACCUM_WIDTH   (ACCUM_WIDTH),
+        .SPARSE_ENABLE (0),
+        .DUAL_ISSUE    (0)
+    ) u_dut_nosparse (
+        .clk            (clk),
+        .rst_n          (rst_n),
+        .act_in         (act_in),
+        .valid_in       (valid_in),
+        .act_out        (act_out_ns),
+        .valid_out      (valid_out_ns),
+        .psum_in        (psum_in),
+        .psum_out       (psum_out_ns),
+        .psum_valid     (psum_valid_ns),
+        .weight_load    (weight_load),
+        .clear          (clear),
+        .enable         (enable),
+        .is_zero_weight (is_zero_weight_ns),
+        .skip_cycle     (skip_cycle_ns)
+    );
+
+    //--------------------------------------------------------------------------
+    // DUT C: DUAL_ISSUE=1 (dual INT8 mode)
+    //--------------------------------------------------------------------------
+    wire              is_zero_weight_dual, skip_cycle_dual;
+    wire signed [DATA_WIDTH-1:0] act_out_dual;
+    wire              valid_out_dual;
+    wire signed [ACCUM_WIDTH-1:0] psum_out_dual;
+    wire              psum_valid_dual;
+
+    pe_int8_sparse #(
+        .DATA_WIDTH    (DATA_WIDTH),
+        .ACCUM_WIDTH   (ACCUM_WIDTH),
+        .SPARSE_ENABLE (1),
+        .DUAL_ISSUE    (1)
+    ) u_dut_dual (
+        .clk            (clk),
+        .rst_n          (rst_n),
+        .act_in         (act_in),
+        .valid_in       (valid_in),
+        .act_out        (act_out_dual),
+        .valid_out      (valid_out_dual),
+        .psum_in        (psum_in),
+        .psum_out       (psum_out_dual),
+        .psum_valid     (psum_valid_dual),
+        .weight_load    (weight_load),
+        .clear          (clear),
+        .enable         (enable),
+        .is_zero_weight (is_zero_weight_dual),
+        .skip_cycle     (skip_cycle_dual)
+    );
 
     //--------------------------------------------------------------------------
     // Check task
@@ -180,7 +246,7 @@ module tb_pe_int8_sparse;
         weight_load <= 1'b1;
         @(posedge clk);
         weight_load <= 1'b0;
-
+        #1ps;
         check_eq("TC02a: is_zero_weight=1", is_zero_weight, 1, "is_zero_weight");
 
         // Drive MAC: should skip, psum_out = psum_in = 100
@@ -203,7 +269,7 @@ module tb_pe_int8_sparse;
         weight_load <= 1'b1;
         @(posedge clk);
         weight_load <= 1'b0;
-
+        #1ps;
         check_eq("TC03a: is_zero_weight=0", is_zero_weight, 0, "is_zero_weight");
 
         // Drive MAC with act=0: should skip (act is zero)
@@ -324,7 +390,7 @@ module tb_pe_int8_sparse;
         weight_load <= 1'b1;
         @(posedge clk);
         weight_load <= 1'b0;
-
+        #1ps;
         check_eq("TC10a: is_zero_weight=1 (weight=0)", is_zero_weight, 1, "is_zero_weight");
 
         // Drive non-zero activation with zero weight → skip_cycle should be 1
@@ -381,6 +447,87 @@ module tb_pe_int8_sparse;
         @(posedge clk);
         // Beat 3 result: 12 (previous) + 5*4 = 32 (skip on beat 2 means 12 was preserved)
         check_eq("TC11: psum_out=32 (12 preserved through skip, then +20)", psum_out, 32, "psum_out");
+
+        //======================================================================
+        // TC12: SPARSE_ENABLE=0 — zero-skip logic disabled
+        //   With SPARSE_ENABLE=0, is_zero_weight and skip_cycle must be 0
+        //   even when weight=0 or activation=0.
+        //   MAC still computes correctly: weight=0 × act=5 → product=0,
+        //   so psum passes through unchanged (same numerical result, no skip).
+        //======================================================================
+        $display("============================================================");
+        $display("TC12: SPARSE_ENABLE=0 — zero-skip disabled");
+        $display("============================================================");
+
+        // Load weight=0
+        @(posedge clk);
+        act_in      <= 8'sd0;
+        valid_in    <= 1'b0;
+        weight_load <= 1'b1;
+        @(posedge clk);
+        weight_load <= 1'b0;
+        #1ps;
+        check_eq("TC12a: is_zero_weight=0 (nosparse)", is_zero_weight_ns, 0, "is_zero_weight_ns");
+        check_eq("TC12b: is_zero_weight=1 (sparse, reference)", is_zero_weight, 1, "is_zero_weight");
+
+        // Drive MAC: weight=0, act=5 → product=0 → psum passthrough
+        drive_pe(8'sd5, 1'b1, 777, 1'b0, 1'b0);
+        wait_for_result();
+        check_eq("TC12c: skip_cycle=0 (nosparse)", skip_cycle_ns, 0, "skip_cycle_ns");
+        check_eq("TC12d: skip_cycle=1 (sparse)", skip_cycle, 1, "skip_cycle");
+        check_eq("TC12e: psum_out=777 (nosparse, 5*0=0)", psum_out_ns, 777, "psum_out_ns");
+        check_eq("TC12f: psum_out=777 (sparse, skip)", psum_out, 777, "psum_out");
+
+        // Load weight=3, act=0: verify no skip in nosparse mode
+        @(posedge clk);
+        act_in      <= 8'sd3;
+        valid_in    <= 1'b0;
+        weight_load <= 1'b1;
+        @(posedge clk);
+        weight_load <= 1'b0;
+        #1ps;
+        check_eq("TC12g: is_zero_weight=0 (nosparse, weight=3)", is_zero_weight_ns, 0, "is_zero_weight_ns");
+        check_eq("TC12h: is_zero_weight=0 (sparse, weight=3)", is_zero_weight, 0, "is_zero_weight");
+
+        drive_pe(8'sd0, 1'b1, 888, 1'b0, 1'b0);
+        wait_for_result();
+        check_eq("TC12i: skip_cycle=0 (nosparse, act=0)", skip_cycle_ns, 0, "skip_cycle_ns");
+        check_eq("TC12j: skip_cycle=1 (sparse, act=0)", skip_cycle, 1, "skip_cycle");
+        check_eq("TC12k: psum_out=888 (nosparse, 0*3=0)", psum_out_ns, 888, "psum_out_ns");
+        check_eq("TC12l: psum_out=888 (sparse, skip)", psum_out, 888, "psum_out");
+
+        //======================================================================
+        // TC13: DUAL_ISSUE=1 — basic MAC sanity
+        //   DUAL_ISSUE=1 packs two INT8 into the same datapath.
+        //   Verify basic MAC still works correctly (same as DUAL_ISSUE=0).
+        //======================================================================
+        $display("============================================================");
+        $display("TC13: DUAL_ISSUE=1 — basic MAC sanity");
+        $display("============================================================");
+
+        // Load weight=7
+        @(posedge clk);
+        act_in      <= 8'sd7;
+        valid_in    <= 1'b0;
+        weight_load <= 1'b1;
+        @(posedge clk);
+        weight_load <= 1'b0;
+
+        // 7 * 4 = 28
+        drive_pe(8'sd4, 1'b1, 0, 1'b0, 1'b1);
+        wait_for_result();
+        check_eq("TC13a: psum_out=28 (DUAL_ISSUE=1)", psum_out_dual, 28, "psum_out_dual");
+        check_eq("TC13b: skip_cycle=0 (DUAL_ISSUE=1)", skip_cycle_dual, 0, "skip_cycle_dual");
+
+        // Negative: (-3)*7 = -21
+        drive_pe(-8'sd3, 1'b1, 0, 1'b0, 1'b1);
+        wait_for_result();
+        check_eq("TC13c: psum_out=-21 (DUAL_ISSUE=1)", psum_out_dual, -21, "psum_out_dual");
+
+        // Clear and accumulate
+        drive_pe(8'sd2, 1'b1, 50, 1'b0, 1'b0);
+        wait_for_result();
+        check_eq("TC13d: psum_out=64 (50+7*2, DUAL_ISSUE=1)", psum_out_dual, 64, "psum_out_dual");
 
         //======================================================================
         // Summary

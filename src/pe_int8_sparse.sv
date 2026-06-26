@@ -1,3 +1,4 @@
+`timescale 1ns / 1ps
 //==============================================================================
 // Module:  pe_int8_sparse
 // Purpose: INT8-optimized Processing Element with sparsity acceleration.

@@ -55,7 +55,7 @@ end
 //==============================================================================
 always @(posedge clk) begin
     if (rd_en)
-        rd_data = mem[rd_addr];
+        rd_data <= mem[rd_addr];
     // else: rd_data holds previous value
 end
 

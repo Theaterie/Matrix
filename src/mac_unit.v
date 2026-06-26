@@ -47,14 +47,16 @@ reg                             valid_s1;          // Valid flag for stage 1
 reg                             clear_d1;          // Delayed clear
 
 // Stage 2 registers (accumulate output stage)
-reg  signed [ACCUM_WIDTH-1:0]   acc_out_r;        // Registered result
+reg  signed [ACCUM_WIDTH-1:0]   own_acc_r;        // Own product accumulator (resets on clear)
+reg  signed [ACCUM_WIDTH-1:0]   acc_out_r;        // Registered result = psum_in + own_acc
 reg                             valid_s2;          // Valid flag for stage 2
 
 //==============================================================================
 // Stage 1: Signed multiply (DSP input-register stage)
 //==============================================================================
 // When enable=1: capture new data, advance pipeline
-// When enable=0: stall — all registers hold current values
+// When enable=0: clear pipeline registers (between tiles in IDLE) to prevent
+//                residual psum from leaking into the next tile computation
 //==============================================================================
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
@@ -67,37 +69,51 @@ always @(posedge clk or negedge rst_n) begin
         acc_d1        <= acc_in;
         valid_s1      <= valid_in;
         clear_d1      <= clear;
+    end else begin
+        // Flush pipeline state between tiles
+        mult_result_r <= {(2*DATA_WIDTH){1'b0}};
+        acc_d1        <= {ACCUM_WIDTH{1'b0}};
+        valid_s1      <= 1'b0;
+        clear_d1      <= 1'b0;
     end
-    // else: pipeline stalled, hold all values
 end
 
 //==============================================================================
 // Stage 2: Accumulate (DSP output-register stage)
 //==============================================================================
-// clear_d1=1  → result = sign-extended product (first beat of new dot-product)
-// clear_d1=0  → result = acc_d1 + sign-extended product (continue accumulating)
+// Architecture (K-depth accumulation with vertical sum):
+//   own_acc_r:  accumulates just this PE's products across K cycles
+//               (reset on clear_d1, accumulated on subsequent cycles)
+//   acc_out_r:  = acc_d1 (upstream cumulative psum_in) + old own_acc_r + current product
+//               This equals the total cumulative sum through this PE (upstream + own),
+//               including all K activations processed so far.
 //==============================================================================
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
-        acc_out_r <= {ACCUM_WIDTH{1'b0}};
-        valid_s2  <= 1'b0;
+        own_acc_r   <= {ACCUM_WIDTH{1'b0}};
+        acc_out_r   <= {ACCUM_WIDTH{1'b0}};
+        valid_s2    <= 1'b0;
     end else if (enable) begin
         if (valid_s1) begin
+            reg signed [ACCUM_WIDTH-1:0] own_acc_new;
             if (clear_d1) begin
-                // New dot-product: seed with first product
-                acc_out_r <= {{(ACCUM_WIDTH - 2*DATA_WIDTH){mult_result_r[2*DATA_WIDTH-1]}},
+                own_acc_new = {{(ACCUM_WIDTH - 2*DATA_WIDTH){mult_result_r[2*DATA_WIDTH-1]}},
                                mult_result_r};
             end else begin
-                // Continue accumulation
-                acc_out_r <= acc_d1 +
-                             {{(ACCUM_WIDTH - 2*DATA_WIDTH){mult_result_r[2*DATA_WIDTH-1]}},
-                              mult_result_r};
+                own_acc_new = own_acc_r +
+                              {{(ACCUM_WIDTH - 2*DATA_WIDTH){mult_result_r[2*DATA_WIDTH-1]}},
+                               mult_result_r};
             end
+            own_acc_r <= own_acc_new;
+            acc_out_r <= acc_d1 + own_acc_new;
         end
-        // valid_s2 follows valid_s1 as a shift register
         valid_s2 <= valid_s1;
+    end else begin
+        // Flush pipeline state between tiles
+        own_acc_r   <= {ACCUM_WIDTH{1'b0}};
+        acc_out_r   <= {ACCUM_WIDTH{1'b0}};
+        valid_s2    <= 1'b0;
     end
-    // else: pipeline stalled, hold all values
 end
 
 //==============================================================================

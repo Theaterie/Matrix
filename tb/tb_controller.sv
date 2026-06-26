@@ -19,6 +19,7 @@
 //   TC13 — Full end-to-end state traversal
 //   TC14 — Async reset during WEIGHT_LOAD returns to IDLE
 //   TC15 — Fast restart: start pulses again after DONE
+//   TC16 — weight_preloaded=1: skip WEIGHT_LOAD, immediate COMPUTE
 //==============================================================================
 
 `timescale 1ns / 1ps
@@ -51,6 +52,7 @@ module tb_controller;
     wire [$clog2(2*(ROWS+COLS)):0] readout_cycle;
     wire [$clog2(ROWS*COLS):0] serialize_cycle;
     reg               deser_ready;
+    reg               weight_preloaded;
 
     integer test_count, pass_count, fail_count;
 
@@ -66,6 +68,7 @@ module tb_controller;
         .clk             (clk),
         .rst_n           (rst_n),
         .start           (start),
+        .weight_preloaded(weight_preloaded),
         .busy            (busy),
         .done            (done),
         .pe_clear        (pe_clear),
@@ -88,9 +91,9 @@ module tb_controller;
     // Check task
     //--------------------------------------------------------------------------
     task automatic check_signal;
-        input [255:0] test_name;
-        input integer  cond;
-        input [511:0]  msg;
+        input string test_name;
+        input integer cond;
+        input string  msg;
         begin
             if (cond) begin
                 $display("[PASS] %0s: %0s", test_name, msg);
@@ -112,6 +115,7 @@ module tb_controller;
         rst_n       = 0;
         start       = 0;
         deser_ready = 0;
+        weight_preloaded = 0;
         test_count  = 0;
         pass_count  = 0;
         fail_count  = 0;
@@ -147,6 +151,7 @@ module tb_controller;
 
         @(posedge clk);
         start <= 1'b0;
+        #1ps;
         check_signal("TC02a: busy=1 after start", busy == 1, $sformatf("busy=%b", busy));
         check_signal("TC02b: phase=1 (WEIGHT_LOAD)", phase == 3'd1, $sformatf("phase=%0d", phase));
         check_signal("TC02c: pe_enable=1", pe_enable == 1, $sformatf("pe_enable=%b", pe_enable));
@@ -197,6 +202,7 @@ module tb_controller;
         deser_ready <= 1'b1;
         @(posedge clk);
         deser_ready <= 1'b0;
+        #1ps;
         check_signal("TC05: phase=2 (COMPUTE)", phase == 3'd2, $sformatf("phase=%0d", phase));
 
         //======================================================================
@@ -243,6 +249,7 @@ module tb_controller;
             integer d;
             for (d = 0; d < READOUT_CYCLES; d = d + 1) begin
                 @(posedge clk);
+                #1ps;
                 check_signal($sformatf("TC08[%0d]: pe_enable=1", d),
                     pe_enable == 1, $sformatf("pe_enable=%b", pe_enable));
                 check_signal($sformatf("TC08[%0d]: readout_cycle=%0d", d, d),
@@ -271,6 +278,7 @@ module tb_controller;
             integer s;
             for (s = 0; s < SERIALIZE_CYCLES; s = s + 1) begin
                 @(posedge clk);
+                #1ps;
                 check_signal($sformatf("TC10[%0d]: serialize_cycle=%0d", s, s),
                     serialize_cycle == s, $sformatf("serialize_cycle=%0d", serialize_cycle));
             end
@@ -284,6 +292,7 @@ module tb_controller;
         $display("============================================================");
 
         @(posedge clk);
+        #1ps;
         check_signal("TC11: phase=5 (DONE)", phase == 3'd5, $sformatf("phase=%0d", phase));
 
         //======================================================================
@@ -297,6 +306,7 @@ module tb_controller;
             done == 1'b1, $sformatf("done=%b", done));
 
         @(posedge clk);
+        #1ps;
         check_signal("TC12b: phase=0 (back to IDLE)",
             phase == 3'd0, $sformatf("phase=%0d", phase));
         check_signal("TC12c: done=0 (single cycle)",
@@ -324,9 +334,11 @@ module tb_controller;
             // Wait through all states, tracking phases
             while (!done) begin
                 @(posedge clk);
+                #1ps;
                 phases_seen = phases_seen | (1 << phase);
             end
-            @(posedge clk);  // Past DONE
+            @(posedge clk);
+            #1ps;
 
             check_signal("TC13a: saw WEIGHT_LOAD (phase=1)",
                 phases_seen & (1 << 1), "");
@@ -395,6 +407,7 @@ module tb_controller;
             start <= 1'b1;
             @(posedge clk);
             start <= 1'b0;
+            #1ps;
 
             check_signal("TC15b: second run started (busy=1)",
                 busy == 1, $sformatf("busy=%b", busy));
@@ -407,6 +420,47 @@ module tb_controller;
             check_signal("TC15d: second run complete",
                 phase == 3'd0 && !busy, $sformatf("phase=%0d busy=%b", phase, busy));
         end
+
+        //======================================================================
+        // TC16: weight_preloaded=1 — skip WEIGHT_LOAD phase
+        //   With weight_preloaded=1, the controller should:
+        //   - Enter WEIGHT_LOAD after start
+        //   - Skip weight_wren/weight_addr generation
+        //   - Transition to COMPUTE as soon as deser_ready=1
+        //======================================================================
+        $display("============================================================");
+        $display("TC16: weight_preloaded=1 — skip WEIGHT_LOAD");
+        $display("============================================================");
+
+        begin : tc16_block
+            integer wt_cycles;
+
+            weight_preloaded <= 1'b1;
+            deser_ready      <= 1'b1;
+            @(posedge clk);
+            start <= 1'b1;
+            @(posedge clk);
+            start <= 1'b0;
+            #1ps;
+            check_signal("TC16a: busy=1 after start", busy == 1, $sformatf("busy=%b", busy));
+            check_signal("TC16b: phase=1 (WEIGHT_LOAD) entered", phase == 3'd1, $sformatf("phase=%0d", phase));
+            check_signal("TC16c: weight_wren=0 (skipped)", weight_wren == 0, $sformatf("weight_wren=%b", weight_wren));
+
+            // With deser_ready=1, should transition to COMPUTE immediately
+            @(posedge clk);
+            #1ps;
+            check_signal("TC16d: immediate transition to COMPUTE", phase == 3'd2, $sformatf("phase=%0d", phase));
+            check_signal("TC16e: busy still 1", busy == 1, $sformatf("busy=%b", busy));
+
+            // Run through COMPUTE, READOUT, SERIALIZE
+            while (!done) @(posedge clk);
+            @(posedge clk);
+            #1ps;
+            check_signal("TC16f: completed, back to IDLE", phase == 3'd0 && !busy, $sformatf("phase=%0d busy=%b", phase, busy));
+        end
+
+        deser_ready      <= 1'b0;
+        weight_preloaded <= 1'b0;
 
         //======================================================================
         // Summary

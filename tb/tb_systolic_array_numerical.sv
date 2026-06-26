@@ -84,11 +84,14 @@ module tb_systolic_array_numerical;
         integer r, c;
         begin
             while (!weight_ready) @(posedge clk);
+            // Use blocking assignment so weight_data is stable BEFORE the
+            // posedge where the PE array captures it (avoids 1-cycle skew)
             for (r = 0; r < ROWS; r = r + 1)
                 for (c = 0; c < COLS; c = c + 1) begin
-                    @(posedge clk); weight_data <= w_mat[r][c];
+                    weight_data = w_mat[r][c];
+                    @(posedge clk);
                 end
-            @(posedge clk); weight_data <= 0;
+            weight_data = 0;
         end
     endtask
 
@@ -121,7 +124,8 @@ module tb_systolic_array_numerical;
         output [ACCUM_WIDTH-1:0]  val;
         begin
             @(posedge clk); res_rd_en <= 1; res_rd_addr <= addr;
-            @(posedge clk); val = res_rd_data; res_rd_en <= 0; res_rd_addr <= 0;
+            @(posedge clk); res_rd_en <= 0; res_rd_addr <= 0;
+            @(posedge clk); val = res_rd_data;
         end
     endtask
 
@@ -177,43 +181,44 @@ module tb_systolic_array_numerical;
     endfunction
 
     //--------------------------------------------------------------------------
-    // Task: Verify result BRAM entries — compare column totals
-    //   Reads all ROWS*COLS entries, sums per column, compares each column's
-    //   total against the expected matrix product column total.
+    // Task: Verify result BRAM entries — check last capture row per column
+    //   With own_acc_r architecture, each PE internally accumulates across K
+    //   cycles, then outputs the total to the vertical psum chain. During
+    //   READOUT, the result_serializer captures ROWS snapshots of the bottom
+    //   edge as the pipeline drains. Only the LAST capture (after all rows
+    //   have finished their K accumulations) contains the complete column
+    //   totals. Earlier captures are intermediate partial sums.
+    //
+    //   We therefore read only the last row of captures (indices
+    //   (ROWS-1)*COLS .. ROWS*COLS-1) and compare each column's value
+    //   against the expected matrix product column total.
     //--------------------------------------------------------------------------
     task automatic verify_results;
         input signed [DATA_WIDTH-1:0] w_mat [0:ROWS-1][0:COLS-1];
         input signed [DATA_WIDTH-1:0] a_mat [0:ROWS-1][0:K_DEPTH-1];
         input [BUF_ADDR_W-1:0] res_base;
         input [255:0] test_name;
-        integer t, c, addr;
+        integer c, addr, t;
         reg [ACCUM_WIDTH-1:0] capture_val, golden_col_total;
-        reg [ACCUM_WIDTH-1:0] col_sums [0:COLS-1];
         begin
-            for (c = 0; c < COLS; c = c + 1)
-                col_sums[c] = 0;
-
-            for (t = 0; t < ROWS; t = t + 1) begin
-                for (c = 0; c < COLS; c = c + 1) begin
-                    addr = res_base + t * COLS + c;
-                    read_res(addr, capture_val);
-                    col_sums[c] = col_sums[c] + capture_val;
-                end
-            end
-
             for (c = 0; c < COLS; c = c + 1) begin
+                // Last capture row = (ROWS-1)*COLS + c
+                addr = res_base + (ROWS - 1) * COLS + c;
+                read_res(addr, capture_val);
                 golden_col_total = compute_column_total(w_mat, a_mat, c);
-                if (col_sums[c] === golden_col_total) begin
-                    $display("  [PASS] %0s column %0d: total %0d == golden %0d",
-                             test_name, c, $signed(col_sums[c]), $signed(golden_col_total));
+                if (capture_val === golden_col_total) begin
+                    $display("  [PASS] %0s column %0d: result %0d == golden %0d",
+                             test_name, c, $signed(capture_val), $signed(golden_col_total));
                     pass_count = pass_count + 1;
                 end else begin
-                    $display("  [FAIL] %0s column %0d: total %0d, expected %0d",
-                             test_name, c, $signed(col_sums[c]), $signed(golden_col_total));
-                    $display("         Per-capture values for column %0d:", c);
+                    $display("  [FAIL] %0s column %0d: result %0d, expected %0d",
+                             test_name, c, $signed(capture_val), $signed(golden_col_total));
+                    $display("         All captures for column %0d (last row [%0d] is final):",
+                             c, (ROWS-1)*COLS + c);
                     for (t = 0; t < ROWS; t = t + 1) begin
                         read_res(res_base + t * COLS + c, capture_val);
-                        $display("           capture[%0d] = %0d", t, $signed(capture_val));
+                        $display("           capture[%0d] @addr %0d = %0d",
+                                 t, res_base + t * COLS + c, $signed(capture_val));
                     end
                     fail_count = fail_count + 1;
                 end

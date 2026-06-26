@@ -149,6 +149,39 @@ generate
 endgenerate
 
 //==============================================================================
+// Clear skew registers (per-row clear alignment)
+//   Row r: delay clear by 2*r cycles via shift register chain, matching the
+//   activation skew. This ensures clear is asserted at the same time as the
+//   first valid activation reaches each row's left boundary, so the mac_unit
+//   properly seeds with psum_in from the row above.
+//==============================================================================
+reg clear_skew_reg [0:ROWS-1][0:MAX_SKEW_DEPTH-1];
+wire clear_skewed [0:ROWS-1];
+
+generate
+    for (r = 0; r < ROWS; r = r + 1) begin : gen_clear_skew
+        localparam SKEW_DEPTH = 2 * r;
+
+        if (SKEW_DEPTH == 0) begin : gen_clear_no_skew
+            assign clear_skewed[r] = clear;
+        end else begin : gen_clear_skew
+            integer d;
+            always @(posedge clk or negedge rst_n) begin
+                if (!rst_n) begin
+                    for (d = 0; d < SKEW_DEPTH; d = d + 1)
+                        clear_skew_reg[r][d] <= 1'b0;
+                end else if (enable) begin
+                    clear_skew_reg[r][0] <= clear;
+                    for (d = 1; d < SKEW_DEPTH; d = d + 1)
+                        clear_skew_reg[r][d] <= clear_skew_reg[r][d-1];
+                end
+            end
+            assign clear_skewed[r] = clear_skew_reg[r][SKEW_DEPTH-1];
+        end
+    end
+endgenerate
+
+//==============================================================================
 // PE activation input MUX
 //   During weight loading (weight_wren=1): feed weight_data directly to EVERY
 //     PE's act_in, bypassing the pipelined activation network. This ensures
@@ -195,7 +228,7 @@ generate
 
                 // Control
                 .weight_load (weight_en[r][c]),
-                .clear       (clear),
+                .clear       (clear_skewed[r]),
                 .enable      (enable)
             );
 

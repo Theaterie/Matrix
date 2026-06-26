@@ -84,6 +84,7 @@ reg [$clog2(WEIGHT_LOAD_CYCLES):0] weight_cnt;     // 0..256
 reg [$clog2(COMPUTE_CYCLES):0]     compute_cnt;     // 0..K_DEPTH
 reg [$clog2(READOUT_CYCLES):0]     readout_cnt;     // 0..64
 reg [$clog2(SERIALIZE_CYCLES):0]   serialize_cnt;   // 0..256
+reg                                weight_active;   // 1 cycle after entering WEIGHT_LOAD
 
 //==============================================================================
 // State register
@@ -93,6 +94,18 @@ always @(posedge clk or negedge rst_n) begin
         state <= STATE_IDLE;
     else
         state <= next_state;
+end
+
+//==============================================================================
+// weight_active: goes high 1 cycle after entering WEIGHT_LOAD.
+// Prevents weight_wren from asserting on the transition cycle, giving the
+// testbench one cycle to set weight_data before it is captured.
+//==============================================================================
+always @(posedge clk or negedge rst_n) begin
+    if (!rst_n)
+        weight_active <= 1'b0;
+    else
+        weight_active <= (state == STATE_WEIGHT_LOAD);
 end
 
 //==============================================================================
@@ -153,9 +166,8 @@ always @(posedge clk or negedge rst_n) begin
     end else begin
         case (state)
             STATE_WEIGHT_LOAD: begin
-                if (weight_cnt < WEIGHT_LOAD_CYCLES)
+                if (weight_active && weight_cnt < WEIGHT_LOAD_CYCLES)
                     weight_cnt <= weight_cnt + 1'b1;
-                // else: hold at max, waiting for deser_ready
             end
 
             STATE_COMPUTE: begin
@@ -204,7 +216,7 @@ always @(*) begin
         STATE_WEIGHT_LOAD: begin
             busy        = 1'b1;
             pe_enable   = 1'b1;
-            if (!weight_preloaded) begin
+            if (!weight_preloaded && weight_active) begin
                 weight_wren = (weight_cnt < WEIGHT_LOAD_CYCLES);
                 weight_addr = weight_cnt[ADDR_WIDTH-1:0];
             end

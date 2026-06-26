@@ -184,9 +184,12 @@ module act_deserializer #(
                     // Track rd_en for pf_done gating
                     rd_active <= bram_rd_en;
 
-                    // Store data from current cycle's read
-                    // (combinational BRAM: data valid same cycle as rd_addr)
-                    if (bram_rd_en && (wr_ptr < TOTAL_ENTRIES)) begin
+                    // Store data from previous cycle's read
+                    // buffer_ram has registered read (1-cycle latency): rd_data
+                    // from addr issued last cycle is available this cycle.
+                    // Use rd_active (= bram_rd_en delayed 1 cycle) as the store
+                    // qualifier to match this latency.
+                    if (rd_active && (wr_ptr < TOTAL_ENTRIES)) begin
                         act_buffer[wr_row][wr_k] <= bram_rd_data;
                         wr_ptr <= wr_ptr + 1'b1;
                     end
@@ -273,7 +276,11 @@ module act_deserializer #(
     //   Combinational so it aligns with act_data_out (also combinational).
     //   Both are available in the SAME cycle that the FSM enters a streaming
     //   state, avoiding the 1-cycle NBA delay mismatch.
-    assign act_valid_out = (state == FSM_STREAMING) ||
+    //   !stream_done gates the STREAMING term to prevent an extra valid cycle
+    //   after stream_cnt wraps to 0 on the last beat (stream_done is registered
+    //   so the FSM stays in STREAMING one extra cycle before transitioning to
+    //   IDLE).
+    assign act_valid_out = ((state == FSM_STREAMING) && !stream_done) ||
                             ((state == FSM_PREFETCH) && pf_done_comb && stream_en) ||
                             ((state == FSM_READY) && stream_en);
 

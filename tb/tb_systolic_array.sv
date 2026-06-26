@@ -22,6 +22,8 @@ module tb_systolic_array;
     reg                                 start;
     wire                                busy, done;
     reg                                 use_bram_act;
+    reg                                 weight_preloaded;
+    reg                                 prefetch_start;
 
     reg  [DATA_WIDTH-1:0]               weight_data;
     wire                                weight_ready;
@@ -45,7 +47,7 @@ module tb_systolic_array;
         .BUF_ADDR_W(BUF_ADDR_W), .BUF_DEPTH(256), .WT_ADDR_W(WT_ADDR_W)
     ) u_dut (
         .clk(clk), .rst_n(rst_n),
-        .start(start), .weight_preloaded(1'b0), .prefetch_start(1'b0),
+        .start(start), .weight_preloaded(weight_preloaded), .prefetch_start(prefetch_start),
         .busy(busy), .done(done),
         .use_bram_act(use_bram_act), .weight_data(weight_data),
         .weight_ready(weight_ready), .act_data(act_data), .act_valid(act_valid),
@@ -58,6 +60,27 @@ module tb_systolic_array;
     always #(CLK_PERIOD/2) clk = ~clk;
 
     //--------------------------------------------------------------------------
+    // Task: Run a BRAM-path tile with weight_preloaded=1 (skip weight load)
+    //   Weights must have been loaded by a previous tile; only preload activations.
+    //--------------------------------------------------------------------------
+    task automatic run_bram_tile_preloaded;
+        input signed [DATA_WIDTH-1:0] a_mat [0:ROWS-1][0:K_DEPTH-1];
+        input [BUF_ADDR_W-1:0] act_base, res_base;
+        begin
+            weight_preloaded <= 1;
+            use_bram_act <= 1; act_base_addr <= act_base; res_base_addr <= res_base;
+            preload_act(act_base, a_mat);
+            // Pulse prefetch_start to trigger deserializer refetch from new base
+            @(posedge clk); prefetch_start <= 1; @(posedge clk); prefetch_start <= 0;
+            @(posedge clk); start <= 1; @(posedge clk); start <= 0;
+            act_valid <= 0;
+            while (!done) @(posedge clk);
+            @(posedge clk);
+            weight_preloaded <= 0;
+        end
+    endtask
+
+    //--------------------------------------------------------------------------
     // Task: Load weights during WEIGHT_LOAD
     //--------------------------------------------------------------------------
     task automatic load_weights;
@@ -65,11 +88,14 @@ module tb_systolic_array;
         integer r, c;
         begin
             while (!weight_ready) @(posedge clk);
+            // Use blocking assignment so weight_data is stable BEFORE the
+            // posedge where the PE array captures it (avoids 1-cycle skew)
             for (r = 0; r < ROWS; r = r + 1)
                 for (c = 0; c < COLS; c = c + 1) begin
-                    @(posedge clk); weight_data <= w_mat[r][c];
+                    weight_data = w_mat[r][c];
+                    @(posedge clk);
                 end
-            @(posedge clk); weight_data <= 0;
+            weight_data = 0;
         end
     endtask
 
@@ -96,11 +122,12 @@ module tb_systolic_array;
     // Task: Read a single result BRAM entry (3 cycles: issue, wait, capture)
     //--------------------------------------------------------------------------
     task automatic read_res;
-        input [BUF_ADDR_W-1:0] addr;
-        output [ACCUM_WIDTH-1:0] val;
+        input  [BUF_ADDR_W-1:0]   addr;
+        output [ACCUM_WIDTH-1:0]  val;
         begin
             @(posedge clk); res_rd_en <= 1; res_rd_addr <= addr;
-            @(posedge clk); val = res_rd_data; res_rd_en <= 0; res_rd_addr <= 0;
+            @(posedge clk); res_rd_en <= 0; res_rd_addr <= 0;
+            @(posedge clk); val = res_rd_data;
         end
     endtask
 
@@ -112,7 +139,7 @@ module tb_systolic_array;
         input signed [DATA_WIDTH-1:0] a_mat [0:ROWS-1][0:K_DEPTH-1];
         input [BUF_ADDR_W-1:0] act_base, res_base;
         begin
-            use_bram_act <= 1; act_base_addr <= act_base; res_base_addr <= res_base;
+            weight_preloaded <= 0; prefetch_start <= 0; use_bram_act <= 1; act_base_addr <= act_base; res_base_addr <= res_base;
             preload_act(act_base, a_mat);
             @(posedge clk); start <= 1; @(posedge clk); start <= 0;
             load_weights(w_mat);
@@ -126,7 +153,7 @@ module tb_systolic_array;
     // Main test
     //==========================================================================
     initial begin
-        clk = 0; rst_n = 0; start = 0; use_bram_act = 0;
+        clk = 0; rst_n = 0; start = 0; use_bram_act = 0; weight_preloaded = 0; prefetch_start = 0;
         weight_data = 0; act_valid = 0;
         for (int i = 0; i < ROWS; i++) act_data[i] = 0;
         act_wr_en = 0; act_wr_addr = 0; act_wr_data = 0;
@@ -276,6 +303,68 @@ module tb_systolic_array;
                 pass_count++;
             end else begin
                 $display("[FAIL] TC03: All results identical (base address isolation broken?)");
+                fail_count++;
+            end
+            test_count++;
+        end
+
+        //======================================================================
+        // TC04: weight_preloaded=1 — reuse weights from previous tile
+        //   First run loads weights normally (weight_preloaded=0).
+        //   Second run sets weight_preloaded=1, skips weight load,
+        //   and must produce identical results (weights retained in PE array).
+        //======================================================================
+        $display("============================================================");
+        $display("TC04: weight_preloaded=1 — weight reuse across tiles");
+        $display("============================================================");
+
+        begin
+            reg signed [DATA_WIDTH-1:0] w_mat [0:ROWS-1][0:COLS-1];
+            reg signed [DATA_WIDTH-1:0] a1 [0:ROWS-1][0:K_DEPTH-1];
+            reg signed [DATA_WIDTH-1:0] a2 [0:ROWS-1][0:K_DEPTH-1];
+            reg [ACCUM_WIDTH-1:0] res1 [0:15], res2 [0:15];
+            reg [ACCUM_WIDTH-1:0] rv;
+            integer r, c, k, mismatches;
+
+            // Same weights as TC03
+            for (r = 0; r < ROWS; r++)
+                for (c = 0; c < COLS; c++)
+                    w_mat[r][c] = 16'sd3;
+
+            // A1 = all 1's
+            for (r = 0; r < ROWS; r++)
+                for (k = 0; k < K_DEPTH; k++)
+                    a1[r][k] = 16'sd1;
+
+            // A2 = all 5's
+            for (r = 0; r < ROWS; r++)
+                for (k = 0; k < K_DEPTH; k++)
+                    a2[r][k] = 16'sd5;
+
+            // Run 1: normal weight load
+            run_bram_tile(w_mat, a1, 8'd120, 8'd120);
+            for (int i = 0; i < 16; i++) read_res(120 + i, res1[i]);
+
+            // Run 2: weight_preloaded=1 — same weights, different activations
+            run_bram_tile_preloaded(a2, 8'd140, 8'd140);
+            for (int i = 0; i < 16; i++) read_res(140 + i, res2[i]);
+
+            // Run 3: normal weight load with same a2 — should match Run 2
+            run_bram_tile(w_mat, a2, 8'd160, 8'd160);
+            for (int i = 0; i < 16; i++) read_res(160 + i, res1[i]);
+
+            mismatches = 0;
+            for (int i = 0; i < 16; i++)
+                if (res1[i] !== res2[i]) begin
+                    $display("  Mismatch [%0d]: weight_preloaded=1 gave %0d, expected %0d", i, $signed(res2[i]), $signed(res1[i]));
+                    mismatches++;
+                end
+
+            if (mismatches == 0) begin
+                $display("[PASS] TC04: weight_preloaded=1 matches normal weight load (%0d entries)", 16);
+                pass_count++;
+            end else begin
+                $display("[FAIL] TC04: %0d mismatches between weight_preloaded modes", mismatches);
                 fail_count++;
             end
             test_count++;
