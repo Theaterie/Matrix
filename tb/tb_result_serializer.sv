@@ -186,6 +186,7 @@ module tb_result_serializer;
             // Row 3: [3000, 3100, 3200, 3300]
 
             shift_en <= 1'b1;
+            @(posedge clk);  // let DUT sample shift_en, first serial_data appears next cycle
             for (r = 0; r < ROWS; r = r + 1) begin
                 for (c = 0; c < COLS; c = c + 1) begin
                     if (r == 0)
@@ -207,13 +208,14 @@ module tb_result_serializer;
         $display("TC04: Done pulse on last entry");
         $display("============================================================");
 
-        // done should have fired on the last entry
-        // Now all entries have been shifted out, next shift should not be valid
-        @(posedge clk);
+        // done should have fired on the last entry (pulse at T_last+1).
+        // Now all entries have been shifted out, next shift should not be valid.
+        @(posedge clk);  // T_last+2: done pulse has fallen back to 0
         check_eq("TC04a: done was asserted", done, 0, "done (was pulse)");
         // After all entries shifted, shift with empty buffer
         shift_en <= 1'b0;
-        @(posedge clk);
+        @(posedge clk);  // DUT samples shift_en=0
+        @(posedge clk);  // serial_valid now deasserted
         check_eq("TC04b: serial_valid=0 when empty", serial_valid, 0, "serial_valid");
 
         //======================================================================
@@ -282,6 +284,7 @@ module tb_result_serializer;
 
             // Now shift out 2*COLS entries
             shift_en <= 1'b1;
+            @(posedge clk);  // let DUT sample shift_en, first output next cycle
             for (c = 0; c < COLS; c = c + 1) begin
                 @(posedge clk);
                 check_eq($sformatf("TC07 row0_c%0d", c), serial_data, row0[c], "serial_data");
@@ -294,6 +297,7 @@ module tb_result_serializer;
             // Check done fires on last entry
             // (done fires when count==1 and we shift, so it fires in parallel with last data)
             // We're past last shift, verify done was a pulse
+            @(posedge clk);  // past the done pulse cycle
             @(posedge clk);
             check_eq("TC07z: done=0 after cycle complete", done, 0, "done");
             shift_en <= 1'b0;

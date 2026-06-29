@@ -165,8 +165,9 @@ module tb_act_deserializer;
         @(posedge clk);
         prefetch_start <= 1'b1;
 
-        @(posedge clk);
+        @(posedge clk);  // T1: DUT samples prefetch_start in IDLE
         prefetch_start <= 1'b0;
+        @(posedge clk);  // T2: bram_rd_en/bram_rd_addr now reflect the first read
         check_eq("TC01a: first BRAM read issued (rd_en=1)", bram_rd_en, 1, "bram_rd_en");
         check_eq("TC01b: first BRAM read addr = base+0", bram_rd_addr, 0, "bram_rd_addr");
 
@@ -196,7 +197,10 @@ module tb_act_deserializer;
         $display("TC03/04: Buffer fill verified via streaming; prefetch_done");
         $display("============================================================");
 
-        // prefetch_done should be high now (buffer is full)
+        // prefetch_done should be high now (buffer is full).
+        // pf_done_r is registered in PREFETCH on the cycle wr_ptr==TOTAL-1, so it
+        // becomes visible one cycle after the last BRAM read deasserts.
+        @(posedge clk);
         check_eq("TC04: prefetch_done=1 after buffer fill", prefetch_done, 1, "prefetch_done");
 
         //======================================================================
@@ -302,8 +306,9 @@ module tb_act_deserializer;
         act_base_addr <= 8'd30;
         @(posedge clk);
         prefetch_start <= 1'b1;
-        @(posedge clk);
+        @(posedge clk);  // T1: DUT samples prefetch_start in IDLE
         prefetch_start <= 1'b0;
+        @(posedge clk);  // T2: bram_rd_addr now reflects first read = base
 
         // Check that BRAM reads start at base=30
         check_eq("TC09a: first read addr = base = 30", bram_rd_addr, 30, "bram_rd_addr");

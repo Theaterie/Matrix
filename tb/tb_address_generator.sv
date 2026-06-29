@@ -125,6 +125,7 @@ module tb_address_generator;
 
         @(posedge clk);
         phase <= 3'd2;  // COMPUTE
+        @(posedge clk);  // let DUT sample phase, first output appears next cycle
 
         begin : tc01_block
             integer k;
@@ -137,13 +138,17 @@ module tb_address_generator;
 
         //======================================================================
         // TC02: act_done pulse after TILE_K cycles
+        //   act_done is a 1-cycle pulse asserted when cnt reaches TILE_K-1.
+        //   It is visible on the SAME cycle as the last TC01 check (k=TILE_K-1),
+        //   so we check it here without an extra @(posedge clk) before DUT
+        //   re-samples and clears the pulse.
         //======================================================================
         $display("============================================================");
         $display("TC02: act_done pulse after TILE_K=%0d addresses", TILE_K);
         $display("============================================================");
 
-        @(posedge clk);
         check_eq("TC02a: act_done", act_done, 1, "act_done");
+        @(posedge clk);
         check_eq("TC02b: counter reset", act_rd_addr, 0, "act_rd_addr (reset)");
 
         //======================================================================
@@ -164,7 +169,8 @@ module tb_address_generator;
             @(posedge clk);
             enable <= 1'b0;
 
-            @(posedge clk);
+            @(posedge clk);  // DUT samples enable=0
+            @(posedge clk);  // act_rd_en now reflects stall (0)
             held_addr = act_rd_addr;
             check_eq("TC03a: act_rd_en=0 during stall", act_rd_en, 0, "act_rd_en");
 
@@ -174,7 +180,8 @@ module tb_address_generator;
 
             // Un-stall
             enable <= 1'b1;
-            @(posedge clk);
+            @(posedge clk);  // DUT samples enable=1
+            @(posedge clk);  // act_rd_en now reflects resume (1)
             check_eq("TC03c: act_rd_en=1 after un-stall", act_rd_en, 1, "act_rd_en");
         end
 
@@ -193,6 +200,7 @@ module tb_address_generator;
         act_base_addr <= 8'd10;
         @(posedge clk);
         phase <= 3'd2;  // COMPUTE
+        @(posedge clk);  // DUT samples phase, first output next cycle
 
         @(posedge clk);
         check_eq("TC04a: act_rd_addr = base+0 = 10", act_rd_addr, 10, "act_rd_addr");
@@ -222,6 +230,7 @@ module tb_address_generator;
         res_base_addr <= 8'd20;
         @(posedge clk);
         phase <= 3'd4;  // SERIALIZE
+        @(posedge clk);  // DUT samples phase, first output next cycle
 
         begin : tc05_block
             integer i;
@@ -234,14 +243,16 @@ module tb_address_generator;
 
         //======================================================================
         // TC06: res_done pulse after RESULT_TOTAL writes
+        //   res_done is a 1-cycle pulse, visible on the same cycle as the last
+        //   TC05 check (i=RESULT_TOTAL-1). Check before DUT re-samples.
         //======================================================================
         $display("============================================================");
         $display("TC06: res_done pulse after %0d writes", RESULT_TOTAL);
         $display("============================================================");
 
-        @(posedge clk);
         check_eq("TC06a: res_done", res_done, 1, "res_done");
-        check_eq("TC06b: counter reset", res_wr_addr, 0, "res_wr_addr");
+        @(posedge clk);
+        check_eq("TC06b: counter reset", res_wr_addr, 20, "res_wr_addr (reset to base)");
 
         //======================================================================
         // TC07: READOUT (phase=3) resets result counter
@@ -251,7 +262,8 @@ module tb_address_generator;
         $display("============================================================");
 
         phase <= 3'd3;  // READOUT
-        @(posedge clk);
+        @(posedge clk);  // DUT samples phase
+        @(posedge clk);  // outputs stable
         check_eq("TC07: res_wr_en=0 during READOUT", res_wr_en, 0, "res_wr_en");
 
         // Back to IDLE

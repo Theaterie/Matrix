@@ -103,13 +103,15 @@ module result_serializer #(
                 if (count == 1)
                     done <= 1'b1;
             end
-            // ---- Idle: hold outputs, reset pointers ----
+            // ---- Idle: hold outputs, reset pointers only when empty ----
+            // NOTE: clearing count/cap_row on every idle cycle would discard
+            //       captured data between capture_en deassertions. Only reset
+            //       pointers when the buffer is already empty (count==0).
             else begin
-                if (!capture_en && !shift_en) begin
+                if (!capture_en && !shift_en && (count == 0)) begin
                     cap_row <= {ROW_WID{1'b0}};
                     ser_row <= {ROW_WID{1'b0}};
                     ser_col <= {COL_WID{1'b0}};
-                    count   <= {COUNT_WID{1'b0}};
                 end
                 if (!shift_en)
                     serial_valid <= 1'b0;

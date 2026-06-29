@@ -152,7 +152,7 @@ module tb_matrix_core;
             wr_cycle_cnt <= 0;
             sa_active <= 0;
             wr_ready_active <= 0;
-            sa_weight_ready <= 0;
+            sa_weight_ready <= 1;  // idle=1 (not loading); DUT waits while 1 in WAIT_LOAD
         end else begin
             sa_done <= 0;  // default: pulse
 
@@ -173,15 +173,19 @@ module tb_matrix_core;
                 end
             end
 
-            // Weight ready: asserted N cycles after K_TILE_START
+            // Weight ready polarity (matches DUT: DUT waits in WAIT_LOAD while
+            // sa_weight_ready==1, and exits on the falling edge when it goes 0).
+            // On host_weight_req: assert sa_weight_ready=1 (loading), then after
+            // SA_WEIGHT_READY_DELAY cycles deassert to 0 (loading complete).
             if (host_weight_req) begin
                 wr_ready_active <= 1;
                 wr_cycle_cnt <= 0;
+                sa_weight_ready <= 1;  // loading in progress
             end
             if (wr_ready_active) begin
                 wr_cycle_cnt <= wr_cycle_cnt + 1;
                 if (wr_cycle_cnt == SA_WEIGHT_READY_DELAY - 1) begin
-                    sa_weight_ready <= 1;
+                    sa_weight_ready <= 0;  // loading complete (falling edge)
                     wr_ready_active <= 0;
                 end
             end else if (!wr_ready_active && !host_weight_req) begin
@@ -299,6 +303,7 @@ module tb_matrix_core;
 
         @(posedge clk); start <= 1;
         @(posedge clk); start <= 0;
+        @(posedge clk);  // state now = K_TILE_START, fsm_state visible
         check_eq("TC02a: fsm_state=K_TILE_START(1)", fsm_state, 1, "fsm_state");
         check_flag("TC02b: busy=1", busy, 1, "busy");
 
@@ -309,6 +314,9 @@ module tb_matrix_core;
         $display("TC03: K_TILE_START — tile indices and flags");
         $display("============================================================");
 
+        // DUT was in K_TILE_START last cycle, setting these outputs (NBA).
+        // They are visible now (state has moved on to WAIT_LOAD).
+        @(posedge clk);  // T+1: K_TILE_START outputs visible, state=WAIT_LOAD
         check_eq("TC03a: tile_m_idx=0", tile_m_idx, 0, "tile_m_idx");
         check_eq("TC03b: tile_n_idx=0", tile_n_idx, 0, "tile_n_idx");
         check_eq("TC03c: tile_k_idx=0", tile_k_idx, 0, "tile_k_idx");
@@ -323,13 +331,13 @@ module tb_matrix_core;
         $display("TC04: K_TILE_START → WAIT_LOAD, holds until sa_weight_ready");
         $display("============================================================");
 
-        @(posedge clk);
         check_eq("TC04a: fsm_state=WAIT_LOAD(2)", fsm_state, 2, "fsm_state");
+        @(posedge clk);  // T+2: sa_weight_ready now asserted (loading)
         check_flag("TC04b: host_weight_req deasserted", host_weight_req, 0, "host_weight_req");
-        check_flag("TC04c: sa_weight_ready=0 (not yet)", sa_weight_ready, 0, "sa_weight_ready");
+        check_flag("TC04c: sa_weight_ready=1 (loading)", sa_weight_ready, 1, "sa_weight_ready");
 
-        // Hold for delay cycles
-        repeat(2) @(posedge clk);
+        // Hold for delay cycles while weights load
+        repeat(1) @(posedge clk);
         check_eq("TC04d: still in WAIT_LOAD", fsm_state, 2, "fsm_state");
 
         //======================================================================

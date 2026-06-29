@@ -90,6 +90,10 @@ module tb_buffer_ram;
 
     //--------------------------------------------------------------------------
     // Task: Issue a read (NBA after posedge, data available 1 cycle later)
+    //   Drives rd_en/rd_addr via NBA, then advances one more posedge so the
+    //   DUT has sampled them. Caller still needs one @(posedge clk) before
+    //   check_read to let rd_data register stabilize (total 2-cycle BRAM
+    //   read latency from this task's return).
     //--------------------------------------------------------------------------
     task automatic do_read;
         input [ADDR_WIDTH-1:0]   addr;
@@ -98,6 +102,7 @@ module tb_buffer_ram;
             rd_en   <= 1'b1;
             rd_addr <= addr;
             wr_en   <= 1'b0;
+            @(posedge clk);  // let DUT sample rd_addr on this edge
         end
     endtask
 
@@ -158,6 +163,7 @@ module tb_buffer_ram;
         rd_en <= 1'b0;
 
         // Wait for read latency — should see OLD value 0x5555 (read-first)
+        @(posedge clk);  // rd_data now stable with the read-first result
         check_read(16'h5555, "TC02a: RAW read returns old value 0x5555");
 
         // Next read should see new value
