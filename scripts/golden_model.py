@@ -52,9 +52,19 @@ def systolic_golden(
     Overall: result[c] = sum_r sum_k W[r][c] * A_hw[r][k]
 
     For standard matmul C = A[M×K] × B[K×N]:
-      - Set K_DEPTH=1 (one weight per PE, intra-PE accumulation disabled)
-      - Load W[r][c] = B[k+r][n+c]
-      - Load A_hw[r][0] = A[m][k+r]
+      - K-reduction requires a DIFFERENT weight per K-index
+      - Hardware is weight-stationary: each PE holds ONE weight (pe.sv weight_r)
+      - So only ROWS different K-indices can be reduced per tile (one per PE row)
+      - K_DEPTH does NOT extend the K-reduction; it reuses the same weight
+        across K_DEPTH activation cycles
+      - For standard matmul, only A_hw[r][0] is filled; A_hw[r][1..K_DEPTH-1] = 0
+      - Result is identical regardless of K_DEPTH (1 or >1)
+
+    Mapping:
+      - TILE_K = ROWS (K-indices per tile, one per PE row)
+      - TILE_N = COLS (N-indices per tile)
+      - W[r][c] = B[k_start+r][n_start+c]
+      - A_hw[r][0] = A[m][k_start+r],  A_hw[r][1..K_DEPTH-1] = 0
       - Result[c] = sum_r B[k+r][n+c] * A[m][k+r] = partial_C at tile (k,n)
 
     Each systolic_array invocation handles ONE K-tile (ROWS indices of K)
@@ -66,7 +76,6 @@ def systolic_golden(
 
     TILE_K = config.rows     # K indices per tile (= ROWS)
     TILE_N = config.cols     # N indices per tile (= COLS)
-    K_DEPTH_HW = config.k_depth
 
     C = np.zeros((M, N), dtype=np.int64)
 
@@ -77,36 +86,18 @@ def systolic_golden(
 
             for k_start in range(0, K, TILE_K):
                 k_end = min(k_start + TILE_K, K)
-                k_len = k_end - k_start
 
-                # Build hardware-style matrices
-                # W[r][c] for r in 0..k_len-1, c in 0..n_len-1
+                # Weight tile: W[r][c] = B[k_start+r][n_start+c]
                 W = B[k_start:k_end, n_start:n_end]  # [k_len, n_len]
 
-                # A_hw[r][kd] for r in 0..k_len-1, kd in 0..K_DEPTH_HW-1
-                # Standard matmul: K_DEPTH_HW=1, A_hw[r][0] = A[m][k_start+r]
-                if K_DEPTH_HW == 1:
-                    # Standard matmul mode
-                    A_hw = A[m, k_start:k_end].reshape(-1, 1)  # [k_len, 1]
-                else:
-                    # Multi-cycle accumulation mode:
-                    # A_hw[r][kd] loaded from row-major BRAM:
-                    #   BRAM[r*K_DEPTH_HW + kd] = A_hw[r][kd]
-                    # For standard usage, we fill A[m][k] across the flattened array
-                    A_flat = np.zeros(k_len * K_DEPTH_HW, dtype=np.int64)
-                    a_slice = A[m, k_start:k_end]
-                    for r in range(k_len):
-                        A_flat[r * K_DEPTH_HW] = a_slice[r]
-                    A_hw = A_flat.reshape(k_len, K_DEPTH_HW)
+                # Activation vector: A_hw[r][0] = A[m][k_start+r]
+                # K_DEPTH is irrelevant for standard matmul because weights are
+                # stationary — each PE uses one weight for all K_DEPTH cycles,
+                # so only one activation per PE row contributes (slot 0).
+                a_vec = A[m, k_start:k_end]  # [k_len]
 
-                # Hardware computation:
-                # result[c] = sum_r sum_kd W[r][c] * A_hw[r][kd]
-                result = np.sum(W * A_hw.sum(axis=1, keepdims=True), axis=0)
-                # Equivalent: (A_hw summed along kd) @ W
-
-                if k_len < TILE_K:
-                    # Pad to full tile size (zero weights/activations for unused rows)
-                    pass  # Already handled by slicing
+                # result[c] = sum_r W[r][c] * a_vec[r]
+                result = W.T @ a_vec  # [n_len]
 
                 acc += result
 
@@ -357,6 +348,23 @@ def self_test():
     assert np.array_equal(captures[0], expected_cap0), f"Capture 0 mismatch"
     print(f"  [PASS] Test 8: Result serializer captures row 0 = {captures[0]}")
 
+    # Test 9: K_DEPTH invariance — standard matmul result is independent of K_DEPTH
+    #   Weights are stationary (pe.sv weight_r), so K_DEPTH>1 cannot extend
+    #   K-reduction. Only slot 0 is used; result equals K_DEPTH=1.
+    config_k1 = SystolicConfig(rows=4, cols=4, k_depth=1)
+    config_k4 = SystolicConfig(rows=4, cols=4, k_depth=4)
+    config_k16 = SystolicConfig(rows=4, cols=4, k_depth=16)
+    A9 = np.random.RandomState(99).randint(-50, 50, (3, 8))
+    B9 = np.random.RandomState(88).randint(-50, 50, (8, 5))
+    C_k1 = systolic_golden(A9, B9, config_k1)
+    C_k4 = systolic_golden(A9, B9, config_k4)
+    C_k16 = systolic_golden(A9, B9, config_k16)
+    C_direct = A9 @ B9
+    assert np.array_equal(C_k1, C_direct), "K_DEPTH=1 mismatch vs direct"
+    assert np.array_equal(C_k4, C_k1), "K_DEPTH=4 differs from K_DEPTH=1"
+    assert np.array_equal(C_k16, C_k1), "K_DEPTH=16 differs from K_DEPTH=1"
+    print(f"  [PASS] Test 9: K_DEPTH invariance (1 == 4 == 16, all match A@B)")
+
     print("\n  All golden model self-tests passed!")
 
 
@@ -388,6 +396,10 @@ def main():
         "--cols", type=int, default=4, help="PE cols / N tile size (default: 4)"
     )
     parser.add_argument(
+        "--k-depth", type=int, default=1,
+        help="K_DEPTH (activations per PE; does not affect standard matmul, default: 1)"
+    )
+    parser.add_argument(
         "--seed", type=int, default=42, help="Random seed (default: 42)"
     )
     parser.add_argument(
@@ -396,7 +408,7 @@ def main():
     )
     args = parser.parse_args()
 
-    config = SystolicConfig(rows=args.rows, cols=args.cols, k_depth=args.rows)
+    config = SystolicConfig(rows=args.rows, cols=args.cols, k_depth=args.k_depth)
 
     if args.self_test and not args.compare:
         print("=== Golden Model Self-Test ===")

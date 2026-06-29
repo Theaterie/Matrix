@@ -7,9 +7,10 @@
 ```
 Layer 5  matrix_core                         分块矩阵乘法调度器（任意 M×N×K）
          │
-Layer 4  ┌─ systolic_array_axis              AXI4-Stream 封装（SoC/DMA 集成）
-         ├─ systolic_array_pingpong          双缓冲封装（隐藏加载延迟）
-         │    └─ systolic_array_exposed      BRAM 端口外露（ping-pong 中间层）
+Layer 4  ┌─ systolic_array_axis_pingpong    AXI4-Stream + 双缓冲（最终封装，SoC/DMA 集成）
+         │    └─ systolic_array_pingpong    双缓冲封装（隐藏加载延迟）
+         │         └─ systolic_array_exposed  BRAM 端口外露（ping-pong 中间层）
+         ├─ systolic_array_axis              AXI4-Stream 封装（无双缓冲）
          └─ systolic_array                   核心计算引擎（内含 BRAM）
               │
 Layer 3  ├── controller                      FSM: IDLE→WEIGHT_LOAD→COMPUTE→READOUT→SERIALIZE→DONE
@@ -75,6 +76,7 @@ systolic_array (核心，内含 BRAM)
    │
    ├── systolic_array_exposed   BRAM 端口外露 → 供 ping-pong 插入 MUX
    │      └── systolic_array_pingpong   双组 BRAM (A/B)，计算与加载重叠
+   │             └── systolic_array_axis_pingpong   AXI4-Stream + 双缓冲（最终封装）
    │
    └── systolic_array_axis      套 AXI4-Stream 接口（S_AXIS_WEIGHT/ACT, M_AXIS_RESULT）
 ```
@@ -84,7 +86,8 @@ systolic_array (核心，内含 BRAM)
 | `systolic_array` | `systolic_array.sv` | 完整单 tile 计算引擎，内含 controller + pe_array + deserializer + serializer + 2×BRAM |
 | `systolic_array_exposed` | `systolic_array_exposed.sv` | 逻辑同上，但 BRAM 移到端口外（中间过渡层，不单独使用） |
 | `systolic_array_pingpong` | `systolic_array_pingpong.sv` | 套 exposed + 双组 BRAM + MUX，active 组计算时 inactive 组可预加载 |
-| `systolic_array_axis` | `systolic_array_axis.sv` | 套 systolic_array + AXI4-Stream 握手 + beat 计数，对接 SoC 总线 |
+| `systolic_array_axis` | `systolic_array_axis.sv` | 套 systolic_array + AXI4-Stream 握手 + beat 计数，对接 SoC 总线（无双缓冲） |
+| `systolic_array_axis_pingpong` | `systolic_array_axis_pingpong.sv` | 套 pingpong + AXI4-Stream，最终封装：双缓冲 + 标准接口 |
 
 ### Layer 5 — 分块调度器
 

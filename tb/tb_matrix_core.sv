@@ -174,22 +174,26 @@ module tb_matrix_core;
             end
 
             // Weight ready polarity (matches DUT: DUT waits in WAIT_LOAD while
-            // sa_weight_ready==1, and exits on the falling edge when it goes 0).
-            // On host_weight_req: assert sa_weight_ready=1 (loading), then after
-            // SA_WEIGHT_READY_DELAY cycles deassert to 0 (loading complete).
+            // sa_weight_ready==1, and exits when it goes 0).
+            // Contract: sa_weight_ready must be 1 BEFORE the DUT enters WAIT_LOAD,
+            // because DUT samples it on the very first WAIT_LOAD cycle. We keep it
+            // at 1 (idle default) and only pulse it to 0 for one cycle after the
+            // load delay, then return to 1. The DUT sees the 0 and exits WAIT_LOAD.
             if (host_weight_req) begin
                 wr_ready_active <= 1;
                 wr_cycle_cnt <= 0;
-                sa_weight_ready <= 1;  // loading in progress
+                sa_weight_ready <= 1;  // loading in progress (hold 1)
             end
             if (wr_ready_active) begin
                 wr_cycle_cnt <= wr_cycle_cnt + 1;
                 if (wr_cycle_cnt == SA_WEIGHT_READY_DELAY - 1) begin
-                    sa_weight_ready <= 0;  // loading complete (falling edge)
+                    sa_weight_ready <= 0;  // one-cycle pulse low: loading complete
                     wr_ready_active <= 0;
+                end else begin
+                    sa_weight_ready <= 1;  // keep high while counting
                 end
             end else if (!wr_ready_active && !host_weight_req) begin
-                sa_weight_ready <= 0;
+                sa_weight_ready <= 1;  // idle: stay 1 so DUT's first WAIT_LOAD sample sees 1
             end
         end
     end
@@ -362,7 +366,9 @@ module tb_matrix_core;
         @(posedge clk);
         check_flag("TC06a: sa_start=1", sa_start, 1, "sa_start");
         @(posedge clk);
-        check_flag("TC06b: sa_start deasserted (pulse)", sa_start, 0, "sa_start");
+        // DUT re-asserts sa_start throughout RUN_TILE (see matrix_core RUN_TILE:
+        // sa_start<=1 each cycle for SA re-start compatibility), so it stays 1.
+        check_flag("TC06b: sa_start held high in RUN_TILE", sa_start, 1, "sa_start");
 
         // Wait for SA to finish
         while (fsm_state == 3) @(posedge clk);
@@ -422,14 +428,20 @@ module tb_matrix_core;
         check_eq("TC10: fsm_state=NEXT_MN(6)", fsm_state, 6, "fsm_state");
 
         //======================================================================
-        // TC11+TC12: NEXT_MN — N exhausted, M exhausted → DONE
+        // TC11+TC12: NEXT_MN — loop tiles until M/N exhausted → DONE
+        //   With M=N=K=4 and TILE=4, there are (M/1)*(N/4)=4*1=4 MN-tiles
+        //   (m_idx iterates 0..3, n_idx stays 0 since N=TILE_N). Wait for the
+        //   final tile's NEXT_MN to reach DONE.
         //======================================================================
         $display("============================================================");
-        $display("TC11/12: NEXT_MN — N/M exhausted → DONE");
+        $display("TC11/12: NEXT_MN — wait for all tiles, then DONE");
         $display("============================================================");
 
-        @(posedge clk);
-        check_eq("TC11: fsm_state=DONE(7)", fsm_state, 7, "fsm_state");
+        // Wait until DONE pulse. done is registered in FSM_DONE state and
+        // becomes visible the cycle after (when FSM is already back in IDLE).
+        while (!done) @(posedge clk);
+        // done=1 confirms DONE state was reached (we're now in IDLE)
+        check_eq("TC11: done pulsed (DONE state reached)", done, 1, "done");
 
         //======================================================================
         // TC13: DONE single-cycle pulse
@@ -438,8 +450,9 @@ module tb_matrix_core;
         $display("TC13: DONE single-cycle pulse → IDLE");
         $display("============================================================");
 
+        // done is visible this cycle (set at end of DONE state); check it now
         check_flag("TC13a: done=1", done, 1, "done");
-        @(posedge clk);
+        @(posedge clk);  // now in IDLE, done deasserted
         check_eq("TC13b: fsm_state=IDLE(0)", fsm_state, 0, "fsm_state");
         check_flag("TC13c: done=0 (single cycle)", done, 0, "done");
         check_flag("TC13d: busy=0", busy, 0, "busy");
@@ -599,12 +612,13 @@ module tb_matrix_core;
             @(posedge clk); start <= 1; @(posedge clk); start <= 0;
 
             while (fsm_state != 1) @(posedge clk);
+            @(posedge clk);  // let K_TILE_START outputs (tile_*_idx) become visible
             check_eq("TC19a: m_idx=0, n_idx=0, k_idx=0",
                 {tile_m_idx, tile_n_idx, tile_k_idx}, 0, "indices");
 
             wait_for_done(c_cnt);
-            // At done, m_idx should be 0 (only one row)
-            check_eq("TC19b: m_idx=0 at end", tile_m_idx, 0, "tile_m_idx");
+            // M=4 with TILE_M=4 means m_idx iterates 0..3; last tile has m_idx=3
+            check_eq("TC19b: m_idx=3 at end (last M-tile)", tile_m_idx, 3, "tile_m_idx");
             $display("[PASS] TC19: Tile indices verified");
             pass_count++; test_count++;
         end

@@ -4,10 +4,11 @@
 
 | 顶层模块 | 适用场景 |
 |----------|----------|
+| `systolic_array_axis_pingpong` | **最终封装**：AXI4-Stream + 双缓冲，SoC/DMA 集成 + 隐藏加载延迟 |
 | `systolic_array` | 独立验证 / 教学演示 |
-| `systolic_array_pingpong` | 需要隐藏加载延迟，提高吞吐 |
-| `systolic_array_axis` | 集成 SoC / 对接 DMA |
-| `matrix_core` | 任意维度矩阵乘法（分块调度） |
+| `systolic_array_pingpong` | 需要隐藏加载延迟，提高吞吐（原始端口） |
+| `systolic_array_axis` | 集成 SoC / 对接 DMA（无双缓冲） |
+| `matrix_core` | 任意维度矩阵乘法（分块调度，需外部连线 systolic_array） |
 
 ---
 
@@ -76,6 +77,53 @@
 | `tile_new_mn` | out | 1 | 脉冲：新 (M,N) tile 开始 |
 | **调试** | | | |
 | `fsm_state` | out | 4 | FSM 状态 |
+
+---
+
+## Layer 4: systolic_array_axis_pingpong (最终封装：AXI4-Stream + 双缓冲)
+
+### AXI4-Stream 接口
+
+| 接口 | 方向 | 信号 | 说明 |
+|------|------|------|------|
+| **S_AXIS_WEIGHT** | Slave | `s_axis_weight_tvalid/tready/tdata/tlast` | 权重流（WEIGHT_LOAD 期间，写入 inactive buffer） |
+| **S_AXIS_ACT** | Slave | `s_axis_act_tvalid/tready/tdata/tlast` | 激活流（start 前预加载到 inactive buffer） |
+| **M_AXIS_RESULT** | Master | `m_axis_result_tvalid/tready/tdata/tlast` | 结果流（done 后从 inactive result BRAM 读取） |
+
+### 控制与辅助端口
+
+| 信号名 | 方向 | 位宽 | 说明 |
+|--------|------|------|------|
+| `clk`, `rst_n` | in | 1 | 时钟/复位 |
+| `start` | in | 1 | 脉冲：启动 tile |
+| `busy` | out | 1 | 计算中 |
+| `done` | out | 1 | 脉冲：完成 |
+| `auto_swap` | in | 1 | 1=done 后自动切换 active buffer |
+| `buf_sel` | out | 1 | 当前 active buffer（0=A, 1=B） |
+| `use_bram_act` | in | 1 | 1=BRAM 路径 |
+| `act_data` | in | DATA_WIDTH×ROWS | 直通激活（测试） |
+| `act_valid` | in | 1 | 激活有效 |
+| `result_data` | out | ACCUM_WIDTH×COLS | 原始结果（调试） |
+| `result_valid` | out | 1 | 结果有效 |
+| `act_base_addr` | in | BUF_ADDR_W | 激活基地址 |
+| `res_base_addr` | in | BUF_ADDR_W | 结果基地址 |
+
+### 封装链
+
+```
+systolic_array → exposed → pingpong → axis_pingpong (本模块)
+```
+
+### Ping-pong 操作流程（auto_swap=1）
+
+1. S_AXIS_ACT 流式写入激活到 inactive buffer
+2. S_AXIS_WEIGHT 流式写入权重（WEIGHT_LOAD 阶段）
+3. `start` 脉冲 → SA 使用 active buffer 计算
+4. 计算期间可继续通过 S_AXIS_ACT 预加载下一 tile 到 inactive buffer
+5. `done` + auto_swap → buf_sel 翻转，结果可通过 M_AXIS_RESULT 读出
+6. 重复 2-5
+
+> **Bootstrap 注意**：首次运行时 active buffer 为空。需先做一次空运行触发 swap，或用 `use_bram_act=0` 直通路径完成首个 tile。
 
 ---
 
