@@ -88,7 +88,7 @@ module matrix_core #(
     output reg                               tile_new_mn,       // Pulse: new (M,N) tile starting
 
     // ---- Debug / status ----
-    output reg  [3:0]                        fsm_state
+    output wire [3:0]                       fsm_state
 );
 
     //==========================================================================
@@ -226,7 +226,6 @@ module matrix_core #(
             tile_new_mn     <= 1'b0;
             busy            <= 1'b0;
             done            <= 1'b0;
-            fsm_state       <= 0;
         end else begin
             // Default: pulse signals low
             sa_start     <= 1'b0;

@@ -1,20 +1,20 @@
 //==============================================================================
 // Testbench: tb_act_deserializer
-// Purpose:    Verify BRAM activation deserializer — prefetch, buffer fill,
+// Purpose:    Verify BRAM activation deserializer 鈥?prefetch, buffer fill,
 //             streaming, and edge cases
 //==============================================================================
 // Test items:
-//   TC01 — PREFETCH starts on prefetch_start pulse
-//   TC02 — BRAM read address sequence during PREFETCH (base..base+TOTAL-1)
-//   TC03 — Buffer fill with 1-cycle BRAM latency
-//   TC04 — prefetch_done timing
-//   TC05 — PREFETCH → READY → STREAMING transition
-//   TC06 — Direct PREFETCH → STREAMING (skip READY) when stream_en is early
-//   TC07 — Streaming cycle counts (K_DEPTH cycles)
-//   TC08 — Data correctness during streaming (all rows, all K cycles)
-//   TC09 — Base address offset
-//   TC10 — act_valid_out combinational timing
-//   TC11 — Async reset during prefetch
+//   TC01 鈥?PREFETCH starts on prefetch_start pulse
+//   TC02 鈥?BRAM read address sequence during PREFETCH (base..base+TOTAL-1)
+//   TC03 鈥?Buffer fill with 1-cycle BRAM latency
+//   TC04 鈥?prefetch_done timing
+//   TC05 鈥?PREFETCH 鈫?READY 鈫?STREAMING transition
+//   TC06 鈥?Direct PREFETCH 鈫?STREAMING (skip READY) when stream_en is early
+//   TC07 鈥?Streaming cycle counts (K_DEPTH cycles)
+//   TC08 鈥?Data correctness during streaming (all rows, all K cycles)
+//   TC09 鈥?Base address offset
+//   TC10 鈥?act_valid_out combinational timing
+//   TC11 鈥?Async reset during prefetch
 //==============================================================================
 
 `timescale 1ns / 1ps
@@ -92,10 +92,10 @@ module tb_act_deserializer;
     // Check task
     //--------------------------------------------------------------------------
     task automatic check_eq;
-        input [255:0]          test_name;
+        input string test_name;
         input integer          actual;
         input integer          expected;
-        input [255:0]          sig_name;
+        input string sig_name;
         begin
             if (actual === expected) begin
                 $display("[PASS] %0s: %0s = %0d (expected %0d)", test_name, sig_name, actual, expected);
@@ -200,10 +200,10 @@ module tb_act_deserializer;
         check_eq("TC04: prefetch_done=1 after buffer fill", prefetch_done, 1, "prefetch_done");
 
         //======================================================================
-        // TC05: READY → STREAMING transition
+        // TC05: READY 鈫?STREAMING transition
         //======================================================================
         $display("============================================================");
-        $display("TC05: READY → STREAMING when stream_en asserts");
+        $display("TC05: READY 鈫?STREAMING when stream_en asserts");
         $display("============================================================");
 
         @(posedge clk);
@@ -247,11 +247,11 @@ module tb_act_deserializer;
         repeat(2) @(posedge clk);
 
         //======================================================================
-        // TC06: Direct PREFETCH → STREAMING (skip READY)
+        // TC06: Direct PREFETCH 鈫?STREAMING (skip READY)
         //   stream_en is asserted before/at same time as prefetch_done
         //======================================================================
         $display("============================================================");
-        $display("TC06: Direct PREFETCH → STREAMING (skip READY)");
+        $display("TC06: Direct PREFETCH 鈫?STREAMING (skip READY)");
         $display("============================================================");
 
         begin : tc06_block
@@ -274,7 +274,7 @@ module tb_act_deserializer;
         repeat(TOTAL_ENTRIES + 2) @(posedge clk);
 
         // Check that streaming is happening
-        check_eq("TC06a: act_valid_out=1 (direct PREFETCH→STREAMING)",
+        check_eq("TC06a: act_valid_out=1 (direct PREFETCH鈫扴TREAMING)",
             act_valid_out, 1, "act_valid_out");
 
         stream_en <= 1'b0;
@@ -287,7 +287,7 @@ module tb_act_deserializer;
         // TC09: Base address offset
         //======================================================================
         $display("============================================================");
-        $display("TC09: Base address offset — act_base_addr=30");
+        $display("TC09: Base address offset 鈥?act_base_addr=30");
         $display("============================================================");
 
         begin : tc09_block

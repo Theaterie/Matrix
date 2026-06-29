@@ -1,19 +1,19 @@
 //==============================================================================
 // Testbench: tb_systolic_array_axis
-// Purpose:    Verify AXI4-Stream wrapper — weight streaming, activation
+// Purpose:    Verify AXI4-Stream wrapper 鈥?weight streaming, activation
 //             preloading, result streaming, TLAST handling, and backpressure
 //==============================================================================
 // Test items:
-//   TC01 — Weight stream handshake (TVALID/TREADY during WEIGHT_LOAD)
-//   TC02 — Weight stream TLAST handling
-//   TC03 — Activation stream preload (S_AXIS_ACT to BRAM)
-//   TC04 — Activation TLAST handling
-//   TC05 — Full tile via AXIS (weights+acts streamed, results streamed out)
-//   TC06 — Result stream handshake (M_AXIS_RESULT)
-//   TC07 — Backpressure on result stream (TREADY=0)
-//   TC08 — Direct activation path (use_bram_act=0)
-//   TC09 — Multiple tiles (reset and re-run)
-//   TC10 — Async reset during operation
+//   TC01 鈥?Weight stream handshake (TVALID/TREADY during WEIGHT_LOAD)
+//   TC02 鈥?Weight stream TLAST handling
+//   TC03 鈥?Activation stream preload (S_AXIS_ACT to BRAM)
+//   TC04 鈥?Activation TLAST handling
+//   TC05 鈥?Full tile via AXIS (weights+acts streamed, results streamed out)
+//   TC06 鈥?Result stream handshake (M_AXIS_RESULT)
+//   TC07 鈥?Backpressure on result stream (TREADY=0)
+//   TC08 鈥?Direct activation path (use_bram_act=0)
+//   TC09 鈥?Multiple tiles (reset and re-run)
+//   TC10 鈥?Async reset during operation
 //==============================================================================
 
 `timescale 1ns / 1ps
@@ -103,10 +103,10 @@ module tb_systolic_array_axis;
     // Check task
     //--------------------------------------------------------------------------
     task automatic check_eq;
-        input [255:0] test_name;
+        input string test_name;
         input integer actual;
         input integer expected;
-        input [255:0] sig_name;
+        input string sig_name;
         begin
             if (actual === expected) begin
                 $display("[PASS] %0s: %0s = %0d (expected %0d)", test_name, sig_name, actual, expected);
@@ -234,7 +234,7 @@ module tb_systolic_array_axis;
 
             @(posedge clk); start <= 1; @(posedge clk); start <= 0;
 
-            // Stream weights — handshake is internal
+            // Stream weights 鈥?handshake is internal
             stream_weights(w_id);
             $display("[PASS] TC01: Weight stream accepted (all %0d beats)", WEIGHT_COUNT);
             pass_count++; test_count++;
@@ -443,7 +443,7 @@ module tb_systolic_array_axis;
             stream_weights(w_id);
             while (!done) @(posedge clk);
             @(posedge clk);
-            $display("[PASS] TC09: Multiple tiles — second run completed");
+            $display("[PASS] TC09: Multiple tiles 鈥?second run completed");
             pass_count++; test_count++;
         end
 

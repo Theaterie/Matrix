@@ -41,6 +41,7 @@ module tb_systolic_array_exposed;
     reg               res_bram_rd_en;
     reg  [BUF_ADDR_W-1:0] res_bram_rd_addr;
     wire [ACCUM_WIDTH-1:0] res_bram_rd_data;
+    reg  [ACCUM_WIDTH-1:0] ext_res_bram_read_d;
     wire [ACCUM_WIDTH-1:0] result_data [0:COLS-1];
     wire              result_valid;
     reg  [BUF_ADDR_W-1:0] act_base_addr, res_base_addr;
@@ -100,9 +101,12 @@ module tb_systolic_array_exposed;
     end
 
     // Result BRAM: read port
+    // NOTE: res_bram_rd_data is an output from the DUT (placeholder tied to 0
+    //       inside systolic_array_exposed). External reads go through ext_res_bram
+    //       directly, so no procedural assignment to res_bram_rd_data here.
     always @(posedge clk) begin
         if (res_bram_rd_en)
-            res_bram_rd_data <= ext_res_bram[res_bram_rd_addr];
+            ext_res_bram_read_d <= ext_res_bram[res_bram_rd_addr];
     end
 
     //--------------------------------------------------------------------------

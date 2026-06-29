@@ -22,6 +22,7 @@
 !/tb/**
 !/scripts/
 !/scripts/**
+!/docs/**
 
 # ---- 5. File types to track ----
 !*.sv        # SystemVerilog sources

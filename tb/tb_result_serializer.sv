@@ -3,15 +3,15 @@
 // Purpose:    Verify parallel capture and serial shift-out of PE array results
 //==============================================================================
 // Test items:
-//   TC01 — Capture single row (COLS-wide parallel data)
-//   TC02 — Capture multiple rows (ROWS rows of distinct data)
-//   TC03 — Serialize row-major order (row 0 col 0..COLS-1, row 1 col 0..)
-//   TC04 — Done pulse on last serial entry
-//   TC05 — Capture overflow protection (>ROWS captures ignored)
-//   TC06 — Empty shift guard (shift_en with no captured data)
-//   TC07 — Full capture+serialize cycle end-to-end
-//   TC08 — Reset mid-operation clears all state
-//   TC09 — parallel_valid=0 during capture_en → no capture
+//   TC01 鈥?Capture single row (COLS-wide parallel data)
+//   TC02 鈥?Capture multiple rows (ROWS rows of distinct data)
+//   TC03 鈥?Serialize row-major order (row 0 col 0..COLS-1, row 1 col 0..)
+//   TC04 鈥?Done pulse on last serial entry
+//   TC05 鈥?Capture overflow protection (>ROWS captures ignored)
+//   TC06 鈥?Empty shift guard (shift_en with no captured data)
+//   TC07 鈥?Full capture+serialize cycle end-to-end
+//   TC08 鈥?Reset mid-operation clears all state
+//   TC09 鈥?parallel_valid=0 during capture_en 鈫?no capture
 //==============================================================================
 
 `timescale 1ns / 1ps
@@ -63,10 +63,10 @@ module tb_result_serializer;
     // Check task
     //--------------------------------------------------------------------------
     task automatic check_eq;
-        input [255:0]          test_name;
+        input string test_name;
         input integer          actual;
         input integer          expected;
-        input [255:0]          sig_name;
+        input string sig_name;
         begin
             if (actual === expected) begin
                 $display("[PASS] %0s: %0s = %0d (expected %0d)", test_name, sig_name, actual, expected);
@@ -103,7 +103,7 @@ module tb_result_serializer;
     //--------------------------------------------------------------------------
     task automatic shift_and_check;
         input [DATA_WIDTH-1:0] expected_val;
-        input [255:0]          test_name;
+        input string test_name;
         begin
             @(posedge clk);
             shift_en <= 1'b1;
@@ -173,7 +173,7 @@ module tb_result_serializer;
         // TC03: Serialize row-major order
         //======================================================================
         $display("============================================================");
-        $display("TC03: Serialize row-major order — verify all %0d entries", ROWS*COLS);
+        $display("TC03: Serialize row-major order 鈥?verify all %0d entries", ROWS*COLS);
         $display("============================================================");
 
         begin : tc03_block
@@ -220,7 +220,7 @@ module tb_result_serializer;
         // TC05: Capture overflow protection (>ROWS captures)
         //======================================================================
         $display("============================================================");
-        $display("TC05: Capture overflow — try to capture >%0d rows", ROWS);
+        $display("TC05: Capture overflow 鈥?try to capture >%0d rows", ROWS);
         $display("============================================================");
 
         begin : tc05_block
@@ -233,7 +233,7 @@ module tb_result_serializer;
             for (int r = 0; r < ROWS + 2; r++)
                 capture_row(row_data);
 
-            $display("[PASS] TC05: Overflow attempted — cap_row gated at %0d", ROWS);
+            $display("[PASS] TC05: Overflow attempted 鈥?cap_row gated at %0d", ROWS);
             pass_count = pass_count + 1;
             test_count = test_count + 1;
         end
@@ -248,7 +248,7 @@ module tb_result_serializer;
         // TC06: Empty shift guard
         //======================================================================
         $display("============================================================");
-        $display("TC06: Empty shift guard — shift_en=1 with no captured data");
+        $display("TC06: Empty shift guard 鈥?shift_en=1 with no captured data");
         $display("============================================================");
 
         shift_en   <= 1'b1;
@@ -318,7 +318,7 @@ module tb_result_serializer;
             rst_n <= 1'b1;
             repeat(2) @(posedge clk);
 
-            // Try to shift — should be empty
+            // Try to shift 鈥?should be empty
             shift_en <= 1'b1;
             @(posedge clk);
             check_eq("TC08a: serial_valid=0 after reset", serial_valid, 0, "serial_valid");
@@ -327,10 +327,10 @@ module tb_result_serializer;
         end
 
         //======================================================================
-        // TC09: parallel_valid=0 during capture_en → no capture
+        // TC09: parallel_valid=0 during capture_en 鈫?no capture
         //======================================================================
         $display("============================================================");
-        $display("TC09: parallel_valid=0 during capture_en → no capture");
+        $display("TC09: parallel_valid=0 during capture_en 鈫?no capture");
         $display("============================================================");
 
         @(posedge clk);
@@ -342,7 +342,7 @@ module tb_result_serializer;
         @(posedge clk);
         capture_en <= 1'b0;
 
-        // Try to shift — should be still empty (no valid capture occurred)
+        // Try to shift 鈥?should be still empty (no valid capture occurred)
         shift_en <= 1'b1;
         @(posedge clk);
         check_eq("TC09: serial_valid=0 (no capture occurred)", serial_valid, 0, "serial_valid");

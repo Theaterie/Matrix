@@ -1,18 +1,18 @@
 //==============================================================================
 // Testbench: tb_pe_dual_int8
-// Purpose:    Verify dual-issue INT8 PE — two independent INT8 dot-products
+// Purpose:    Verify dual-issue INT8 PE 鈥?two independent INT8 dot-products
 //             in one 16-bit datapath (packed format)
 //==============================================================================
 // Test items:
-//   TC01 — Weight load (packed: {w_hi, w_lo})
-//   TC02 — Lower INT8 MAC: psum_out_lo = psum_in_lo + act_lo * w_lo
-//   TC03 — Upper INT8 MAC: psum_out_hi = psum_in_hi + act_hi * w_hi
-//   TC04 — Dual simultaneous MAC (both halves active)
-//   TC05 — Activation pass-through (2-cycle delay, 16-bit packed)
-//   TC06 — Clear accumulator on both streams
-//   TC07 — Enable stall (pipeline freeze)
-//   TC08 — Signed negative values on both halves
-//   TC09 — psum_valid timing alignment
+//   TC01 鈥?Weight load (packed: {w_hi, w_lo})
+//   TC02 鈥?Lower INT8 MAC: psum_out_lo = psum_in_lo + act_lo * w_lo
+//   TC03 鈥?Upper INT8 MAC: psum_out_hi = psum_in_hi + act_hi * w_hi
+//   TC04 鈥?Dual simultaneous MAC (both halves active)
+//   TC05 鈥?Activation pass-through (2-cycle delay, 16-bit packed)
+//   TC06 鈥?Clear accumulator on both streams
+//   TC07 鈥?Enable stall (pipeline freeze)
+//   TC08 鈥?Signed negative values on both halves
+//   TC09 鈥?psum_valid timing alignment
 //==============================================================================
 
 `timescale 1ns / 1ps
@@ -84,10 +84,10 @@ module tb_pe_dual_int8;
     // Check task
     //--------------------------------------------------------------------------
     task automatic check_eq;
-        input [255:0] test_name;
+        input string test_name;
         input integer actual;
         input integer expected;
-        input [255:0] sig_name;
+        input string sig_name;
         begin
             if (actual === expected) begin
                 $display("[PASS] %0s: %0s = %0d (expected %0d)", test_name, sig_name, actual, expected);
@@ -144,14 +144,14 @@ module tb_pe_dual_int8;
         repeat(2) @(posedge clk);
 
         //======================================================================
-        // TC01: Weight load — packed {w_hi, w_lo} = {0xFE(-2), 0x05(5)}
+        // TC01: Weight load 鈥?packed {w_hi, w_lo} = {0xFE(-2), 0x05(5)}
         //======================================================================
         $display("============================================================");
-        $display("TC01: Weight load — packed w_hi=-2, w_lo=5");
+        $display("TC01: Weight load 鈥?packed w_hi=-2, w_lo=5");
         $display("============================================================");
 
         @(posedge clk);
-        act_in      <= pack_int8(8'sd(-2), 8'sd5);
+        act_in      <= pack_int8(-8'sd2, 8'sd5);
         valid_in    <= 1'b0;  // not a MAC op
         weight_load <= 1'b1;
 
@@ -159,10 +159,10 @@ module tb_pe_dual_int8;
         weight_load <= 1'b0;
 
         //======================================================================
-        // TC02: Lower INT8 MAC — act_lo=3, w_lo=5 → 15
+        // TC02: Lower INT8 MAC 鈥?act_lo=3, w_lo=5 鈫?15
         //======================================================================
         $display("============================================================");
-        $display("TC02: Lower INT8 MAC — act_lo=3 * w_lo=5 = 15");
+        $display("TC02: Lower INT8 MAC 鈥?act_lo=3 * w_lo=5 = 15");
         $display("============================================================");
 
         drive_pe(pack_int8(8'sd0, 8'sd3), 1'b1, 0, 0, 1'b0, 1'b1);
@@ -175,10 +175,10 @@ module tb_pe_dual_int8;
         check_eq("TC02b: psum_out_hi=0 (act_hi=0)", psum_out_hi, 0, "psum_out_hi");
 
         //======================================================================
-        // TC03: Upper INT8 MAC — act_hi=4, w_hi=-2 → -8
+        // TC03: Upper INT8 MAC 鈥?act_hi=4, w_hi=-2 鈫?-8
         //======================================================================
         $display("============================================================");
-        $display("TC03: Upper INT8 MAC — act_hi=4 * w_hi=-2 = -8");
+        $display("TC03: Upper INT8 MAC 鈥?act_hi=4 * w_hi=-2 = -8");
         $display("============================================================");
 
         drive_pe(pack_int8(8'sd4, 8'sd0), 1'b1, 0, 0, 1'b0, 1'b1);
@@ -191,10 +191,10 @@ module tb_pe_dual_int8;
 
         //======================================================================
         // TC04: Dual simultaneous MAC
-        //   act_lo=3, w_lo=5 → 15; act_hi=7, w_hi=-2 → -14
+        //   act_lo=3, w_lo=5 鈫?15; act_hi=7, w_hi=-2 鈫?-14
         //======================================================================
         $display("============================================================");
-        $display("TC04: Dual simultaneous MAC — lo: 3*5=15, hi: 7*(-2)=-14");
+        $display("TC04: Dual simultaneous MAC 鈥?lo: 3*5=15, hi: 7*(-2)=-14");
         $display("============================================================");
 
         drive_pe(pack_int8(8'sd7, 8'sd3), 1'b1, 0, 0, 1'b0, 1'b1);
@@ -210,23 +210,23 @@ module tb_pe_dual_int8;
         //   drive act_in = {0x07, 0x03}, check act_out after 2 cycles
         //======================================================================
         $display("============================================================");
-        $display("TC05: Activation pass-through — 2-cycle delay");
+        $display("TC05: Activation pass-through 鈥?2-cycle delay");
         $display("============================================================");
 
         drive_pe(pack_int8(8'sd7, 8'sd3), 1'b1, 0, 0, 1'b0, 1'b1);
         @(posedge clk);
         valid_in <= 1'b0;
         @(posedge clk);  // act_d1 = act_in
-        @(posedge clk);  // act_d2 = act_d1 → act_out
+        @(posedge clk);  // act_d2 = act_d1 鈫?act_out
         check_eq("TC05: act_out = 0x0703 after 2 cycles", act_out, 16'h0703, "act_out");
         check_eq("TC05v: valid_out=1", valid_out, 1, "valid_out");
 
         //======================================================================
-        // TC06: Clear accumulator — seed new dot-product
+        // TC06: Clear accumulator 鈥?seed new dot-product
         //   weight loaded: w_lo=5, w_hi=-2. clear=1 resets accumulator
         //======================================================================
         $display("============================================================");
-        $display("TC06: Clear accumulator — new dot-product");
+        $display("TC06: Clear accumulator 鈥?new dot-product");
         $display("============================================================");
 
         // First: accumulate something
@@ -254,7 +254,7 @@ module tb_pe_dual_int8;
         // TC07: Enable stall
         //======================================================================
         $display("============================================================");
-        $display("TC07: Enable stall — pipeline freeze");
+        $display("TC07: Enable stall 鈥?pipeline freeze");
         $display("============================================================");
 
         // Produce known result: 3*5=15 (lo) with clear
@@ -275,12 +275,12 @@ module tb_pe_dual_int8;
         repeat(3) @(posedge clk);
 
         //======================================================================
-        // TC08: Signed negative — both halves
+        // TC08: Signed negative 鈥?both halves
         //   w_lo=5, w_hi=-2; act_lo=-6, act_hi=8
         //   lo: -6*5 = -30; hi: 8*(-2) = -16
         //======================================================================
         $display("============================================================");
-        $display("TC08: Signed negative — lo: (-6)*5=-30, hi: 8*(-2)=-16");
+        $display("TC08: Signed negative 鈥?lo: (-6)*5=-30, hi: 8*(-2)=-16");
         $display("============================================================");
 
         drive_pe(pack_int8(8'sd8, -8'sd6), 1'b1, 0, 0, 1'b0, 1'b1);
@@ -295,7 +295,7 @@ module tb_pe_dual_int8;
         // TC09: psum_valid timing
         //======================================================================
         $display("============================================================");
-        $display("TC09: psum_valid timing — aligned with psum outputs");
+        $display("TC09: psum_valid timing 鈥?aligned with psum outputs");
         $display("============================================================");
 
         drive_pe(pack_int8(8'sd1, 8'sd1), 1'b1, 0, 0, 1'b0, 1'b1);

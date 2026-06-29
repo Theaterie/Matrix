@@ -54,6 +54,9 @@ reg  signed [ACCUM_WIDTH-1:0]   own_acc_r;        // Own product accumulator (re
 reg  signed [ACCUM_WIDTH-1:0]   acc_out_r;        // Registered result = psum_in + own_acc
 reg                             valid_s2;          // Valid flag for stage 2
 
+// Stage 2 combinational helper (declared at module scope for Verilog-2001 compat)
+reg  signed [ACCUM_WIDTH-1:0]   own_acc_new;
+
 //==============================================================================
 // Stage 1: Signed multiply (DSP input-register stage)
 //==============================================================================
@@ -100,14 +103,13 @@ always @(posedge clk or negedge rst_n) begin
         valid_s2    <= 1'b0;
     end else if (enable) begin
         if (valid_s1) begin
-            reg signed [ACCUM_WIDTH-1:0] own_acc_new;
             if (clear_d1) begin
                 own_acc_new = {{(ACCUM_WIDTH - 2*DATA_WIDTH){mult_result_r[2*DATA_WIDTH-1]}},
                                mult_result_r};
             end else begin
                 own_acc_new = own_acc_r +
                               {{(ACCUM_WIDTH - 2*DATA_WIDTH){mult_result_r[2*DATA_WIDTH-1]}},
-                               mult_result_r};
+                                mult_result_r};
             end
             own_acc_r <= own_acc_new;
             acc_out_r <= acc_d1 + own_acc_new;

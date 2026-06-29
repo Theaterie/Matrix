@@ -1,21 +1,21 @@
 //==============================================================================
 // Testbench: tb_systolic_array_pingpong
-// Purpose:    Verify dual-buffer (ping-pong) systolic array — buffer selection,
-//             host↔inactive and SA↔active MUX routing, auto-swap, isolation
+// Purpose:    Verify dual-buffer (ping-pong) systolic array 鈥?buffer selection,
+//             host鈫攊nactive and SA鈫攁ctive MUX routing, auto-swap, isolation
 //==============================================================================
 // Test items:
-//   TC01 — Initial buffer select after reset (buf_sel=0, A active)
-//   TC02 — Host write to inactive buffer (B when sel=0)
-//   TC03 — SA reads from active buffer (A when sel=0)
-//   TC04 — Auto-swap after done (buf_sel toggles 0→1)
-//   TC05 — Host write to new inactive buffer (A when sel=1)
-//   TC06 — Read results from inactive buffer (results from run 1)
-//   TC07 — Read results from new active buffer (results from run 2)
-//   TC08 — auto_swap=0 mode (buf_sel unchanged after done)
-//   TC09 — Activation isolation (no cross-contamination)
-//   TC10 — Result isolation (no overwriting between buffers)
-//   TC11 — Direct path via pingpong (use_bram_act=0)
-//   TC12 — Multiple ping-pong cycles (ABABA pattern)
+//   TC01 鈥?Initial buffer select after reset (buf_sel=0, A active)
+//   TC02 鈥?Host write to inactive buffer (B when sel=0)
+//   TC03 鈥?SA reads from active buffer (A when sel=0)
+//   TC04 鈥?Auto-swap after done (buf_sel toggles 0鈫?)
+//   TC05 鈥?Host write to new inactive buffer (A when sel=1)
+//   TC06 鈥?Read results from inactive buffer (results from run 1)
+//   TC07 鈥?Read results from new active buffer (results from run 2)
+//   TC08 鈥?auto_swap=0 mode (buf_sel unchanged after done)
+//   TC09 鈥?Activation isolation (no cross-contamination)
+//   TC10 鈥?Result isolation (no overwriting between buffers)
+//   TC11 鈥?Direct path via pingpong (use_bram_act=0)
+//   TC12 鈥?Multiple ping-pong cycles (ABABA pattern)
 //==============================================================================
 
 `timescale 1ns / 1ps
@@ -99,10 +99,10 @@ module tb_systolic_array_pingpong;
     // Check task
     //--------------------------------------------------------------------------
     task automatic check_eq;
-        input [255:0] test_name;
+        input string test_name;
         input integer actual;
         input integer expected;
-        input [255:0] sig_name;
+        input string sig_name;
         begin
             if (actual === expected) begin
                 $display("[PASS] %0s: %0s = %0d (expected %0d)", test_name, sig_name, actual, expected);
@@ -196,7 +196,7 @@ module tb_systolic_array_pingpong;
         // TC01: Initial buffer select
         //======================================================================
         $display("============================================================");
-        $display("TC01: Initial buffer select — buf_sel=0 (A active)");
+        $display("TC01: Initial buffer select 鈥?buf_sel=0 (A active)");
         $display("============================================================");
         check_eq("TC01: buf_sel=0 after reset", buf_sel, 0, "buf_sel");
 
@@ -219,7 +219,7 @@ module tb_systolic_array_pingpong;
         end
 
         //======================================================================
-        // TC03: SA reads from active buffer (A) — run tile, verify results
+        // TC03: SA reads from active buffer (A) 鈥?run tile, verify results
         //   But first we need to write activations to buffer A (active side)
         //   Since host writes to INACTIVE (buffer B), we need to use buffer A
         //   for SA. auto_swap must be set to swap after first write.
@@ -273,7 +273,7 @@ module tb_systolic_array_pingpong;
         //   Switch to auto_swap mode and run again
         //======================================================================
         $display("============================================================");
-        $display("TC04: Auto-swap after done — buf_sel toggles 0→1");
+        $display("TC04: Auto-swap after done 鈥?buf_sel toggles 0鈫?");
         $display("============================================================");
 
         auto_swap <= 1;
@@ -294,11 +294,11 @@ module tb_systolic_array_pingpong;
 
             host_write_activations(a_mat, 0);
 
-            // Run tile — uses active buffer A (empty, so results will be zero)
-            // But after done, auto_swap triggers 0→1
+            // Run tile 鈥?uses active buffer A (empty, so results will be zero)
+            // But after done, auto_swap triggers 0鈫?
             run_tile(w_id);
 
-            check_eq("TC04: buf_sel toggled 0→1 after auto_swap", buf_sel, 1, "buf_sel");
+            check_eq("TC04: buf_sel toggled 0鈫? after auto_swap", buf_sel, 1, "buf_sel");
         end
 
         //======================================================================
@@ -357,7 +357,7 @@ module tb_systolic_array_pingpong;
                     w_id[r][c] = (r == c) ? 16'sd3 : 16'sd0;
             run_tile(w_id);
             // After this: sel toggles to 0, inactive = B (containing results)
-            check_eq("TC07a: buf_sel toggled 1→0 again", buf_sel, 0, "buf_sel");
+            check_eq("TC07a: buf_sel toggled 1鈫? again", buf_sel, 0, "buf_sel");
             $display("[PASS] TC07: Run on active B completed");
             pass_count++; test_count++;
         end
@@ -366,7 +366,7 @@ module tb_systolic_array_pingpong;
         // TC08: auto_swap=0 mode
         //======================================================================
         $display("============================================================");
-        $display("TC08: auto_swap=0 — buf_sel unchanged after done");
+        $display("TC08: auto_swap=0 鈥?buf_sel unchanged after done");
         $display("============================================================");
 
         begin : tc08_block
@@ -385,7 +385,7 @@ module tb_systolic_array_pingpong;
         // TC09+TC10: Buffer isolation
         //======================================================================
         $display("============================================================");
-        $display("TC09/10: Buffer isolation — write A, verify B unaffected");
+        $display("TC09/10: Buffer isolation 鈥?write A, verify B unaffected");
         $display("============================================================");
 
         // With auto_swap=0, sel=0, A active, B inactive
@@ -405,7 +405,7 @@ module tb_systolic_array_pingpong;
             // Write massive data to inactive B
             host_write_activations(a_mat, 0);
 
-            // Read back from B (inactive) — should reflect new data (7777*4 = 31108)
+            // Read back from B (inactive) 鈥?should reflect new data (7777*4 = 31108)
             host_read_result(0, rv_after);
 
             if (rv_before !== rv_after) begin

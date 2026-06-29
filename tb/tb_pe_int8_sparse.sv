@@ -3,21 +3,21 @@
 // Purpose:    Verify INT8-optimized PE with zero-skip sparsity acceleration
 //==============================================================================
 // Test items:
-//   TC01 — Normal MAC (INT8 mode, no skip)
-//   TC02 — Zero-weight skip (skip_cycle=1, psum_out = psum_in)
-//   TC03 — Zero-activation skip (skip_cycle=1, psum_out = psum_in)
-//   TC04 — Weight loading from act_in
-//   TC05 — Activation pass-through (2-cycle delay)
-//   TC06 — Clear accumulator (new dot-product)
-//   TC07 — Enable stall (pipeline freeze)
-//   TC08 — Signed negative values
-//   TC09 — Sparsity functional verification (skip on zeros)
-//   TC10 — Status outputs (is_zero_weight, skip_cycle)
-//   TC11 — Mixed sparse/non-sparse sequence
-//   TC12 — SPARSE_ENABLE=0: zero-skip logic disabled (separate DUT)
-//   TC13 — DUAL_ISSUE=1: basic MAC sanity (separate DUT)
-//   TC12 — SPARSE_ENABLE=0: zero-weight does not trigger skip
-//   TC13 — DUAL_ISSUE=1: sanity check with basic MAC
+//   TC01 鈥?Normal MAC (INT8 mode, no skip)
+//   TC02 鈥?Zero-weight skip (skip_cycle=1, psum_out = psum_in)
+//   TC03 鈥?Zero-activation skip (skip_cycle=1, psum_out = psum_in)
+//   TC04 鈥?Weight loading from act_in
+//   TC05 鈥?Activation pass-through (2-cycle delay)
+//   TC06 鈥?Clear accumulator (new dot-product)
+//   TC07 鈥?Enable stall (pipeline freeze)
+//   TC08 鈥?Signed negative values
+//   TC09 鈥?Sparsity functional verification (skip on zeros)
+//   TC10 鈥?Status outputs (is_zero_weight, skip_cycle)
+//   TC11 鈥?Mixed sparse/non-sparse sequence
+//   TC12 鈥?SPARSE_ENABLE=0: zero-skip logic disabled (separate DUT)
+//   TC13 鈥?DUAL_ISSUE=1: basic MAC sanity (separate DUT)
+//   TC12 鈥?SPARSE_ENABLE=0: zero-weight does not trigger skip
+//   TC13 鈥?DUAL_ISSUE=1: sanity check with basic MAC
 //==============================================================================
 
 `timescale 1ns / 1ps
@@ -142,10 +142,10 @@ module tb_pe_int8_sparse;
     // Check task
     //--------------------------------------------------------------------------
     task automatic check_eq;
-        input [255:0] test_name;
+        input string test_name;
         input integer actual;
         input integer expected;
-        input [255:0] sig_name;
+        input string sig_name;
         begin
             if (actual === expected) begin
                 $display("[PASS] %0s: %0s = %0d (expected %0d)", test_name, sig_name, actual, expected);
@@ -212,10 +212,10 @@ module tb_pe_int8_sparse;
         repeat(2) @(posedge clk);
 
         //======================================================================
-        // TC01: Normal MAC — act=5, weight=3, no skip
+        // TC01: Normal MAC 鈥?act=5, weight=3, no skip
         //======================================================================
         $display("============================================================");
-        $display("TC01: Normal MAC — act=5 * weight=3 = 15");
+        $display("TC01: Normal MAC 鈥?act=5 * weight=3 = 15");
         $display("============================================================");
 
         // Load weight=3
@@ -233,10 +233,10 @@ module tb_pe_int8_sparse;
         check_eq("TC01b: skip_cycle=0", skip_cycle, 0, "skip_cycle");
 
         //======================================================================
-        // TC02: Zero-weight skip — weight=0, act=5
+        // TC02: Zero-weight skip 鈥?weight=0, act=5
         //======================================================================
         $display("============================================================");
-        $display("TC02: Zero-weight skip — weight=0, act=5");
+        $display("TC02: Zero-weight skip 鈥?weight=0, act=5");
         $display("============================================================");
 
         // Load weight=0
@@ -256,10 +256,10 @@ module tb_pe_int8_sparse;
         check_eq("TC02c: skip_cycle=1 (weight is zero)", skip_cycle, 1, "skip_cycle");
 
         //======================================================================
-        // TC03: Zero-activation skip — weight=7, act=0
+        // TC03: Zero-activation skip 鈥?weight=7, act=0
         //======================================================================
         $display("============================================================");
-        $display("TC03: Zero-activation skip — weight=7, act=0");
+        $display("TC03: Zero-activation skip 鈥?weight=7, act=0");
         $display("============================================================");
 
         // Load weight=7
@@ -279,10 +279,10 @@ module tb_pe_int8_sparse;
         check_eq("TC03c: skip_cycle=1 (activation is zero)", skip_cycle, 1, "skip_cycle");
 
         //======================================================================
-        // TC04: Weight loading verification — use loaded weight in MAC
+        // TC04: Weight loading verification 鈥?use loaded weight in MAC
         //======================================================================
         $display("============================================================");
-        $display("TC04: Weight loading — load weight=9, verify via MAC");
+        $display("TC04: Weight loading 鈥?load weight=9, verify via MAC");
         $display("============================================================");
 
         @(posedge clk);
@@ -316,7 +316,7 @@ module tb_pe_int8_sparse;
         // TC06: Clear accumulator
         //======================================================================
         $display("============================================================");
-        $display("TC06: Clear accumulator — fresh start with weight=9");
+        $display("TC06: Clear accumulator 鈥?fresh start with weight=9");
         $display("============================================================");
 
         // First, accumulate: psum_in(50) + 9*2 = 68
@@ -333,7 +333,7 @@ module tb_pe_int8_sparse;
         // TC07: Enable stall
         //======================================================================
         $display("============================================================");
-        $display("TC07: Enable stall — pipeline freeze");
+        $display("TC07: Enable stall 鈥?pipeline freeze");
         $display("============================================================");
 
         drive_pe(8'sd1, 1'b1, 0, 1'b0, 1'b1);
@@ -352,10 +352,10 @@ module tb_pe_int8_sparse;
 
         //======================================================================
         // TC08: Signed negative
-        //   weight=9, act=-3 → -27
+        //   weight=9, act=-3 鈫?-27
         //======================================================================
         $display("============================================================");
-        $display("TC08: Signed negative — (-3)*9 = -27");
+        $display("TC08: Signed negative 鈥?(-3)*9 = -27");
         $display("============================================================");
 
         drive_pe(-8'sd3, 1'b1, 0, 1'b0, 1'b1);
@@ -380,7 +380,7 @@ module tb_pe_int8_sparse;
         // TC10: Status outputs
         //======================================================================
         $display("============================================================");
-        $display("TC10: Status outputs — is_zero_weight and skip_cycle");
+        $display("TC10: Status outputs 鈥?is_zero_weight and skip_cycle");
         $display("============================================================");
 
         // Load weight=0
@@ -393,7 +393,7 @@ module tb_pe_int8_sparse;
         #1ps;
         check_eq("TC10a: is_zero_weight=1 (weight=0)", is_zero_weight, 1, "is_zero_weight");
 
-        // Drive non-zero activation with zero weight → skip_cycle should be 1
+        // Drive non-zero activation with zero weight 鈫?skip_cycle should be 1
         @(posedge clk);
         act_in <= 8'sd5;
         valid_in <= 1'b1;
@@ -420,13 +420,13 @@ module tb_pe_int8_sparse;
         @(posedge clk);
         weight_load <= 1'b0;
 
-        // Beat 1: act=3, weight=4 → 12 (non-zero, no skip)
+        // Beat 1: act=3, weight=4 鈫?12 (non-zero, no skip)
         drive_pe(8'sd3, 1'b1, 0, 1'b0, 1'b1);
         @(posedge clk);
         valid_in <= 1'b0;
         clear    <= 1'b0;
 
-        // Beat 2: act=0, weight=4 → skip (act is zero)
+        // Beat 2: act=0, weight=4 鈫?skip (act is zero)
         @(posedge clk);
         act_in   <= 8'sd0;
         valid_in <= 1'b1;
@@ -434,7 +434,7 @@ module tb_pe_int8_sparse;
         @(posedge clk);
         valid_in <= 1'b0;
 
-        // Beat 3: act=5, weight=4 → 20 (non-zero)
+        // Beat 3: act=5, weight=4 鈫?20 (non-zero)
         @(posedge clk);
         act_in   <= 8'sd5;
         valid_in <= 1'b1;
@@ -449,14 +449,14 @@ module tb_pe_int8_sparse;
         check_eq("TC11: psum_out=32 (12 preserved through skip, then +20)", psum_out, 32, "psum_out");
 
         //======================================================================
-        // TC12: SPARSE_ENABLE=0 — zero-skip logic disabled
+        // TC12: SPARSE_ENABLE=0 鈥?zero-skip logic disabled
         //   With SPARSE_ENABLE=0, is_zero_weight and skip_cycle must be 0
         //   even when weight=0 or activation=0.
-        //   MAC still computes correctly: weight=0 × act=5 → product=0,
+        //   MAC still computes correctly: weight=0 脳 act=5 鈫?product=0,
         //   so psum passes through unchanged (same numerical result, no skip).
         //======================================================================
         $display("============================================================");
-        $display("TC12: SPARSE_ENABLE=0 — zero-skip disabled");
+        $display("TC12: SPARSE_ENABLE=0 鈥?zero-skip disabled");
         $display("============================================================");
 
         // Load weight=0
@@ -470,7 +470,7 @@ module tb_pe_int8_sparse;
         check_eq("TC12a: is_zero_weight=0 (nosparse)", is_zero_weight_ns, 0, "is_zero_weight_ns");
         check_eq("TC12b: is_zero_weight=1 (sparse, reference)", is_zero_weight, 1, "is_zero_weight");
 
-        // Drive MAC: weight=0, act=5 → product=0 → psum passthrough
+        // Drive MAC: weight=0, act=5 鈫?product=0 鈫?psum passthrough
         drive_pe(8'sd5, 1'b1, 777, 1'b0, 1'b0);
         wait_for_result();
         check_eq("TC12c: skip_cycle=0 (nosparse)", skip_cycle_ns, 0, "skip_cycle_ns");
@@ -497,12 +497,12 @@ module tb_pe_int8_sparse;
         check_eq("TC12l: psum_out=888 (sparse, skip)", psum_out, 888, "psum_out");
 
         //======================================================================
-        // TC13: DUAL_ISSUE=1 — basic MAC sanity
+        // TC13: DUAL_ISSUE=1 鈥?basic MAC sanity
         //   DUAL_ISSUE=1 packs two INT8 into the same datapath.
         //   Verify basic MAC still works correctly (same as DUAL_ISSUE=0).
         //======================================================================
         $display("============================================================");
-        $display("TC13: DUAL_ISSUE=1 — basic MAC sanity");
+        $display("TC13: DUAL_ISSUE=1 鈥?basic MAC sanity");
         $display("============================================================");
 
         // Load weight=7

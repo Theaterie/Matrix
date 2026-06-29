@@ -4,15 +4,15 @@
 //             buffers during COMPUTE and SERIALIZE phases
 //==============================================================================
 // Test items:
-//   TC01 — Activation read addresses during COMPUTE (sequential, base+offset)
-//   TC02 — act_done pulse after TILE_K addresses
-//   TC03 — Enable gating during COMPUTE (enable=0 holds address)
-//   TC04 — Base address offset for activations
-//   TC05 — Result write addresses during SERIALIZE
-//   TC06 — res_done pulse after ROWS*COLS writes
-//   TC07 — READOUT resets result counter
-//   TC08 — Non-active phases produce no outputs
-//   TC09 — Async reset during operation
+//   TC01 鈥?Activation read addresses during COMPUTE (sequential, base+offset)
+//   TC02 鈥?act_done pulse after TILE_K addresses
+//   TC03 鈥?Enable gating during COMPUTE (enable=0 holds address)
+//   TC04 鈥?Base address offset for activations
+//   TC05 鈥?Result write addresses during SERIALIZE
+//   TC06 鈥?res_done pulse after ROWS*COLS writes
+//   TC07 鈥?READOUT resets result counter
+//   TC08 鈥?Non-active phases produce no outputs
+//   TC09 鈥?Async reset during operation
 //==============================================================================
 
 `timescale 1ns / 1ps
@@ -81,10 +81,10 @@ module tb_address_generator;
     // Check task
     //--------------------------------------------------------------------------
     task automatic check_eq;
-        input [255:0]          test_name;
+        input string test_name;
         input integer          actual;
         input integer          expected;
-        input [255:0]          sig_name;
+        input string sig_name;
         begin
             if (actual === expected) begin
                 $display("[PASS] %0s: %0s = %0d (expected %0d)", test_name, sig_name, actual, expected);
@@ -150,7 +150,7 @@ module tb_address_generator;
         // TC03: Enable gating during COMPUTE
         //======================================================================
         $display("============================================================");
-        $display("TC03: Enable gating — enable=0 stalls activation address");
+        $display("TC03: Enable gating 鈥?enable=0 stalls activation address");
         $display("============================================================");
 
         // Let it run for 2 cycles, then stall
@@ -187,7 +187,7 @@ module tb_address_generator;
         // TC04: Base address offset
         //======================================================================
         $display("============================================================");
-        $display("TC04: Base address offset — act_base_addr=10");
+        $display("TC04: Base address offset 鈥?act_base_addr=10");
         $display("============================================================");
 
         act_base_addr <= 8'd10;
@@ -264,7 +264,7 @@ module tb_address_generator;
         // TC08: Non-active phases produce no outputs
         //======================================================================
         $display("============================================================");
-        $display("TC08: IDLE/WEIGHT_LOAD/DONE phases — no address activity");
+        $display("TC08: IDLE/WEIGHT_LOAD/DONE phases 鈥?no address activity");
         $display("============================================================");
 
         // IDLE

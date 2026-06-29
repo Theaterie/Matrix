@@ -68,8 +68,8 @@ module tb_pe;
     //   Caller must wait 3 @(posedge clk) after driving inputs before checking
     //--------------------------------------------------------------------------
     task automatic check_psum;
-        input [ACCUM_WIDTH-1:0] expected_val;
-        input [255:0]           test_name;
+        input signed [ACCUM_WIDTH-1:0] expected_val;
+        input string                 test_name;
         begin
             if (psum_valid && (psum_out === expected_val)) begin
                 $display("[PASS] %0s: psum_out = %0d (expected %0d)", test_name, psum_out, expected_val);
@@ -89,7 +89,7 @@ module tb_pe;
     //--------------------------------------------------------------------------
     task automatic check_act;
         input signed [DATA_WIDTH-1:0] expected_val;
-        input [255:0]                 test_name;
+        input string                  test_name;
         begin
             if ((act_out === expected_val) && valid_out) begin
                 $display("[PASS] %0s: act_out = %0d (expected %0d), valid_out = %b",
@@ -181,7 +181,9 @@ module tb_pe;
         //======================================================================
         // TC02: Single MAC — psum_in + weight x act_in
         //   weight=7 (already loaded), act=5, psum_in=10 -> 10 + 7x5 = 45
-        //   clear=0: include psum_in in accumulation (not a new dot-product)
+        //   clear=1: start a fresh dot-product so own_acc = product only,
+        //            acc_out = psum_in + product = 10 + 35 = 45
+        //   (clear=0 would accumulate onto prior own_acc, see TC04)
         //======================================================================
         $display("============================================================");
         $display("TC02: Single MAC — psum_in + weight x act_in");
@@ -192,7 +194,7 @@ module tb_pe;
         valid_in    <= 1'b1;
         psum_in     <= 40'sd10;
         weight_load <= 1'b0;
-        clear       <= 1'b0;      // clear=0: accumulate psum_in + weight*act
+        clear       <= 1'b1;      // clear=1: fresh dot-product, acc_out = psum_in + w*a
 
         @(posedge clk);
         valid_in <= 1'b0;
@@ -256,12 +258,13 @@ module tb_pe;
         weight_load <= 1'b0;
         clear       <= 1'b1;   // Start new dot-product: acc = 0 + 1*2 = 2
 
-        // Beat 2: accumulate 3x2=6 onto psum_in=2 -> 8 (clear=0)
+        // Beat 2: accumulate 3x2=6 onto own_acc -> own_total = 2+6 = 8
+        //   psum_in=0 (upstream silent this beat); acc_out = psum_in + own_total = 8
         @(posedge clk);
         act_in      <= 16'sd3;
         valid_in    <= 1'b1;
-        psum_in     <= 40'sd2; // Feed back the expected partial sum from beat 1
-        clear       <= 1'b0;   // Continue accumulation
+        psum_in     <= 40'sd0; // Upstream psum_in = 0 this beat
+        clear       <= 1'b0;   // Continue accumulation onto own_acc
 
         @(posedge clk);
         valid_in <= 1'b0;
