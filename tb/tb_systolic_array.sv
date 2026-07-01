@@ -87,13 +87,18 @@ module tb_systolic_array;
         input signed [DATA_WIDTH-1:0] w_mat [0:ROWS-1][0:COLS-1];
         integer r, c;
         begin
+            // Pre-set first weight so PE(0,0) captures it at the FIRST
+            // WEIGHT_LOAD posedge, before the TB can react to weight_ready.
+            weight_data = w_mat[0][0];
             while (!weight_ready) @(posedge clk);
-            // Use blocking assignment so weight_data is stable BEFORE the
-            // posedge where the PE array captures it (avoids 1-cycle skew)
+            // PE(0,0) already captured w_mat[0][0]. Feed addr 1..N-1.
+            // Only advance @(posedge clk) for entries we actually feed.
             for (r = 0; r < ROWS; r = r + 1)
                 for (c = 0; c < COLS; c = c + 1) begin
-                    weight_data = w_mat[r][c];
-                    @(posedge clk);
+                    if (!(r == 0 && c == 0)) begin
+                        weight_data = w_mat[r][c];
+                        @(posedge clk);
+                    end
                 end
             weight_data = 0;
         end

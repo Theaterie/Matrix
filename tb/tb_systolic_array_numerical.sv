@@ -82,15 +82,36 @@ module tb_systolic_array_numerical;
     task automatic load_weights;
         input signed [DATA_WIDTH-1:0] w_mat [0:ROWS-1][0:COLS-1];
         integer r, c;
+        reg [DATA_WIDTH-1:0] last_weight;
         begin
-            while (!weight_ready) @(posedge clk);
-            // Use blocking assignment so weight_data is stable BEFORE the
-            // posedge where the PE array captures it (avoids 1-cycle skew)
+            // Pre-set first weight so PE(0,0) captures it at the FIRST
+            // WEIGHT_LOAD posedge, before the TB can react to weight_ready.
+            weight_data = w_mat[0][0];
+            while (!weight_ready) begin
+                weight_data = w_mat[0][0];
+                @(posedge clk);
+                #1;
+            end
+            // weight_ready is now 1 (detected 1 cycle late).
+            // PE(0,0) already captured w_mat[0][0] at the first WEIGHT_LOAD
+            // posedge. Feed remaining weights for addr 1..ROWS*COLS-1.
+            // Only call @(posedge clk) for entries we actually feed, so the
+            // TB stays in sync with the controller's weight_addr counter.
             for (r = 0; r < ROWS; r = r + 1)
                 for (c = 0; c < COLS; c = c + 1) begin
-                    weight_data = w_mat[r][c];
-                    @(posedge clk);
+                    if (!(r == 0 && c == 0)) begin
+                        last_weight = w_mat[r][c];
+                        weight_data = last_weight;
+                        @(posedge clk);
+                    end
                 end
+            // Hold last weight until WEIGHT_LOAD ends.
+            last_weight = w_mat[ROWS-1][COLS-1];
+            while (weight_ready) begin
+                weight_data = last_weight;
+                @(posedge clk);
+                #1;
+            end
             weight_data = 0;
         end
     endtask
@@ -414,66 +435,5 @@ module tb_systolic_array_numerical;
 
     always @(posedge clk)
         if (done && rst_n) $display("  [MON] Time %0t: done=1", $time);
-
-    //==========================================================================
-    // Debug probes — TC01 only (t < 2000ns)
-    //==========================================================================
-    reg [2:0] dbg_phase;
-    reg [7:0] dbg_compute_cnt;
-    reg [7:0] dbg_readout_cnt;
-    reg [7:0] dbg_serialize_cnt;
-    reg       dbg_deser_ready;
-    reg       dbg_deser_prefetch_done;
-    reg       dbg_stream_en;
-    reg       dbg_pe_enable;
-    reg       dbg_pe_clear;
-    reg [3:0] dbg_act0;
-    reg       dbg_act_valid;
-    reg [39:0] dbg_res0;
-    reg       dbg_res_valid;
-
-    always @(posedge clk) begin
-        dbg_phase               <= u_dut.ctrl_phase;
-        dbg_compute_cnt         <= u_dut.u_controller.compute_cnt;
-        dbg_readout_cnt         <= u_dut.u_controller.readout_cnt;
-        dbg_serialize_cnt       <= u_dut.u_controller.serialize_cnt;
-        dbg_deser_ready         <= u_dut.deser_ready_gated;
-        dbg_deser_prefetch_done <= u_dut.deser_prefetch_done;
-        dbg_stream_en           <= u_dut.u_act_deserializer.stream_en;
-        dbg_pe_enable           <= u_dut.ctrl_pe_enable;
-        dbg_pe_clear            <= u_dut.ctrl_pe_clear;
-        dbg_act0                <= u_dut.deser_act_data[0];
-        dbg_act_valid           <= u_dut.deser_act_valid;
-        dbg_res0                <= u_dut.result_data[0];
-        dbg_res_valid           <= u_dut.result_valid;
-    end
-
-    // Dump waveform for first test only
-    initial begin
-        $dumpfile("numerical.vcd");
-        $dumpvars(0, tb_systolic_array_numerical);
-    end
-
-    // Track all phase transitions and key events across all tests
-    reg [2:0] prev_phase;
-    always @(posedge clk) begin
-        if (u_dut.ctrl_phase != prev_phase) begin
-            $display("  [DBG] t=%0t phase %0d->%0d  pe_en=%b pe_clr=%b deser_ready=%b pf_done=%b stream_en=%b",
-                     $time, prev_phase, u_dut.ctrl_phase,
-                     u_dut.ctrl_pe_enable, u_dut.ctrl_pe_clear,
-                     u_dut.deser_ready_gated, u_dut.deser_prefetch_done,
-                     u_dut.u_act_deserializer.stream_en);
-            prev_phase <= u_dut.ctrl_phase;
-        end
-    end
-
-    // Track parallel_valid during READOUT and capture
-    always @(posedge clk) begin
-        if (u_dut.ctrl_phase == 3'b011) begin
-            $display("  [RDOUT] t=%0t readout_cnt=%0d res_valid=%b res0=%0d",
-                     $time, u_dut.u_controller.readout_cnt,
-                     u_dut.result_valid, $signed(u_dut.result_data[0]));
-        end
-    end
 
 endmodule
